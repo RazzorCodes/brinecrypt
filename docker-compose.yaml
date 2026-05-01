@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: brinecrypt-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: brinecrypt
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: brinecrypt-app
+    working_dir: /app
+    volumes:
+      - .:/app:Z
+      - go_build_cache:/bin/.cache
+      - go_mod_cache:/go/pkg/mod
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/brinecrypt?sslmode=disable"
+      BRINECRYPT_KEK: "ef55d59f1b3cf519c15629a89964716b62c359e6be3b7ca3c2769e632ce525b0"
+      GOCACHE: "/bin/.cache"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  go_build_cache:
+  go_mod_cache:

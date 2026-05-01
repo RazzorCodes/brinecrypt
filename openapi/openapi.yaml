@@ -1,0 +1,833 @@
+openapi: 3.0.3
+info:
+  title: Brinecrypt API
+  description: |
+    Brinecrypt is a secure resource management and encryption service designed to provide a centralized and secure way to store and manage sensitive configuration data, secrets, and other resources.
+
+    ### Core Concepts
+
+    *   **Resources:** Named entities stored within a **Namespace**. Resources can be of type `cleartext` (stored as is) or `encrypted` (transparently encrypted/decrypted).
+    *   **Namespaces:** Logical groupings for resources. The `_` namespace is reserved for internal system resources like users.
+    *   **Versions:** Every time a resource is updated via `PUT`, a new version is created. Brinecrypt maintains a history of all versions.
+    *   **Principals:** Entities that can be granted permissions. These include **Users** and **Service Accounts** (SAs).
+    *   **Permissions:** Granular access control based on a `ResourcePattern` (e.g., `prod/*`), a `Verb` (`list`, `read`, `write`, `delete`), and an optional expiry time.
+
+    ### Authentication & Authorization
+
+    Brinecrypt supports multiple authentication methods:
+    1.  **Session Tokens:** Obtained via `/auth/login`. Used for interactive sessions.
+    2.  **Personal Access Tokens (PATs):** Long-lived tokens issued by users for programmatic access.
+    3.  **Capability Tokens:** Restricted tokens issued with a specific set of permissions, useful for delegation or narrow-scoped tasks.
+    4.  **Service Account Tokens:** Integrated with Kubernetes for seamless authentication of workloads.
+
+    All API requests (except login/refresh) require a Bearer token in the `Authorization` header.
+
+    ### Encryption
+
+    When a resource is marked as `encrypted`, Brinecrypt automatically generates a unique Data Encryption Key (DEK) for each version. This DEK is used to encrypt the resource data using AES-256-GCM. The DEK itself is then encrypted using a Master Key Encryption Key (KEK) and stored alongside the resource version. Decryption happens transparently when a user with `read` permission retrieves the resource.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login to obtain session and refresh tokens
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequestBody'
+      responses:
+        '200':
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponseBody'
+        '400':
+          description: Malformed input
+        '401':
+          description: Incorrect user or password
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh session token using a refresh token
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshSessionRequest'
+      responses:
+        '200':
+          description: Successfully refreshed tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponseBody'
+        '400':
+          description: Malformed input
+        '401':
+          description: Unauthorized or expired refresh token
+
+  /auth/logout:
+    delete:
+      tags:
+        - Auth
+      summary: Logout and invalidate session token
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Successfully logged out
+        '401':
+          description: Unauthorized
+
+  /api/v1/tokens/pat:
+    post:
+      tags:
+        - Tokens
+      summary: Issue a Personal Access Token (PAT)
+      operationId: issuePAT
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssuePATRequest'
+      responses:
+        '200':
+          description: PAT successfully issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Unauthorized
+
+  /api/v1/tokens/pat/{id}:
+    delete:
+      tags:
+        - Tokens
+      summary: Revoke a PAT
+      operationId: revokePAT
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        '204':
+          description: PAT successfully revoked
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '404':
+          description: PAT not found
+
+  /api/v1/tokens/capability:
+    post:
+      tags:
+        - Tokens
+      summary: Issue a Capability Token with specific permissions
+      operationId: issueCapabilityToken
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCapabilityTokenRequest'
+      responses:
+        '200':
+          description: Capability token successfully issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+
+  /api/v1/tokens/capability/{id}:
+    delete:
+      tags:
+        - Tokens
+      summary: Revoke a Capability Token
+      operationId: revokeCapabilityToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        '204':
+          description: Capability token successfully revoked
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Token not found
+
+  /admin/users:
+    get:
+      tags:
+        - Admin
+      summary: List all users
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal server error
+    post:
+      tags:
+        - Admin
+      summary: Create a new user
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '204':
+          description: User successfully created
+        '400':
+          description: Bad request
+        '403':
+          description: Forbidden (requires administrative privileges)
+        '500':
+          description: Internal server error
+
+  /admin/users/{name}:
+    get:
+      tags:
+        - Admin
+      summary: Get user by name
+      operationId: getUserByName
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+    delete:
+      tags:
+        - Admin
+      summary: Delete user by name
+      operationId: deleteUserByName
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User successfully deleted
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal server error
+
+  /admin/permissions:
+    post:
+      tags:
+        - Admin
+      summary: Grant permissions to a principal (user or service account)
+      operationId: grantPermissions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionsRequest'
+      responses:
+        '204':
+          description: Permissions successfully granted
+        '400':
+          description: Bad request
+        '403':
+          description: Forbidden
+        '404':
+          description: Principal not found
+    delete:
+      tags:
+        - Admin
+      summary: Revoke permissions from a principal
+      operationId: revokePermissions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionsRequest'
+      responses:
+        '204':
+          description: Permissions successfully revoked
+        '400':
+          description: Bad request
+        '403':
+          description: Forbidden
+        '404':
+          description: Principal not found
+
+  /api/v1/{namespace}:
+    get:
+      tags:
+        - Resources
+      summary: List resources in a namespace
+      operationId: listResourcesInNamespace
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of resource summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResourceSummary'
+        '401':
+          description: Unauthorized
+
+  /api/v1/{namespace}/{name}:
+    get:
+      tags:
+        - Resources
+      summary: Get a resource by name (latest version)
+      operationId: getResource
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resource details including the latest value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource not found
+    put:
+      tags:
+        - Resources
+      summary: Create or update a resource
+      operationId: putResource
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutResourceRequest'
+      responses:
+        '204':
+          description: Resource successfully created or updated
+        '400':
+          description: Invalid request body
+        '401':
+          description: Unauthorized
+    delete:
+      tags:
+        - Resources
+      summary: Delete a resource
+      operationId: deleteResource
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Resource successfully deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource not found
+
+  /api/v1/{namespace}/{name}/versions:
+    get:
+      tags:
+        - Resources
+      summary: List all versions of a resource
+      operationId: listResourceVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of resource version summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResourceValueSummary'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource not found
+
+  /api/v1/{namespace}/{name}/{version}:
+    get:
+      tags:
+        - Resources
+      summary: Get a specific version of a resource
+      operationId: getResourceByVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: namespace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        '200':
+          description: Resource version details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceValue'
+        '400':
+          description: Invalid version number
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource or version not found
+
+  /api/v1/uuid/{uuid}:
+    get:
+      tags:
+        - Resources
+      summary: Get a resource value by its unique UUID
+      operationId: getResourceValueByUUID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Resource value details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceValue'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource value not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Verb:
+      type: string
+      enum: [list, read, write, delete]
+      description: Allowed operations on resources.
+
+    ResourceType:
+      type: string
+      enum: [undefined, cleartext, encrypted]
+      description: Type of resource data storage.
+
+    EncryptionAlgorithm:
+      type: string
+      enum: [undefined, aes-256-gcm]
+      description: Algorithm used to encrypt resource data.
+
+    Namespace:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+        - name
+
+    Permission:
+      type: object
+      properties:
+        resource_pattern:
+          type: string
+          example: "default/*"
+        verb:
+          $ref: '#/components/schemas/Verb'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - resource_pattern
+        - verb
+        - created_at
+
+    PermissionEntry:
+      type: object
+      properties:
+        verb:
+          $ref: '#/components/schemas/Verb'
+        resource_pattern:
+          type: string
+          example: "default/my-secret"
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - verb
+        - resource_pattern
+
+    Resource:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ResourceType'
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        retired_at:
+          type: string
+          format: date-time
+        namespace:
+          $ref: '#/components/schemas/Namespace'
+        value:
+          $ref: '#/components/schemas/ResourceValue'
+      required:
+        - name
+        - type
+        - created_at
+        - created_by
+
+    ResourceValue:
+      type: object
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        data:
+          type: string
+          description: The actual value content (decrypted if requested and authorized).
+        encryption_algorithm:
+          $ref: '#/components/schemas/EncryptionAlgorithm'
+        encryption_key_id:
+          type: integer
+        encryption_key:
+          $ref: '#/components/schemas/EncryptionKey'
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        retired_at:
+          type: string
+          format: date-time
+      required:
+        - uuid
+        - version
+        - data
+        - encryption_algorithm
+        - created_at
+
+    EncryptionKey:
+      type: object
+      properties:
+        encrypted_dek:
+          type: string
+        kek_version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - encrypted_dek
+        - kek_version
+        - created_at
+
+    ResourceSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ResourceType'
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        retired_at:
+          type: string
+          format: date-time
+      required:
+        - name
+        - type
+        - created_at
+        - created_by
+
+    ResourceValueSummary:
+      type: object
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        retired_at:
+          type: string
+          format: date-time
+        encryption_algorithm:
+          $ref: '#/components/schemas/EncryptionAlgorithm'
+      required:
+        - uuid
+        - version
+        - created_at
+        - encryption_algorithm
+
+    LoginRequestBody:
+      type: object
+      properties:
+        user:
+          type: string
+        pass:
+          type: string
+      required:
+        - user
+        - pass
+
+    LoginResponseBody:
+      type: object
+      properties:
+        session_token:
+          type: string
+        refresh_token:
+          type: string
+      required:
+        - session_token
+        - refresh_token
+
+    RefreshSessionRequest:
+      type: object
+      properties:
+        token:
+          type: string
+      required:
+        - token
+
+    IssuePATRequest:
+      type: object
+      properties:
+        expiry:
+          type: string
+          format: date-time
+
+    IssueCapabilityTokenRequest:
+      type: object
+      properties:
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionEntry'
+      required:
+        - permissions
+
+    CreateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        pass:
+          type: string
+      required:
+        - name
+        - pass
+
+    PermissionsRequest:
+      type: object
+      properties:
+        principal:
+          type: string
+          description: "Principal identifier (e.g., 'user:username' or 'sa:namespace:name')"
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionEntry'
+      required:
+        - principal
+        - permissions
+
+    UserResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+      required:
+        - name
+        - email
+        - created_at
+
+    PutResourceRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ResourceType'
+        value:
+          type: string
+      required:
+        - type
+        - value
