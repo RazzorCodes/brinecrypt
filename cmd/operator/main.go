@@ -14,6 +14,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -62,6 +63,13 @@ func main() {
 	}
 
 	if err := reconciler.SetupWithManager(mgr); err != nil {
+		panic(err)
+	}
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		panic(err)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		panic(err)
 	}
 

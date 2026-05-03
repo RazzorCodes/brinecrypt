@@ -7,4 +7,4 @@ metadata:
     {{- include "brinecrypt.labels" . | nindent 4 }}
 data:
   admin_tokens: |
-    {{ .Values.adminTokens | toJson }}
+    {{- .Values.adminTokens | toJson | nindent 4 }}

@@ -1,0 +1,3 @@
+{{- if and .Values.brinekey.restrictTokenCreation (not (len .Values.brinekey.tokenRequestNamespaces | toString | ne "0")) -}}
+{{- fail "values.brinekey.tokenRequestNamespaces must contain at least one namespace when brinekey.restrictTokenCreation=true" -}}
+{{- end -}}

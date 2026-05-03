@@ -1,3 +1,8 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
 image:
   repository: zot.lan/brinecrypt
   tag: latest
@@ -19,18 +24,18 @@ syncNamespace: ""
 # SA permissions — desired state synced into brinecrypt-sa-permissions ConfigMap.
 saPermissions:
   service_accounts: []
-  # - namespace: kube-ex
-  #   name: my-sa
-  #   permissions:
-  #     - resource_pattern: "mynamespace/mysecret"
-  #       verb: read
 
 # Bootstrap admin tokens — hex strings, 32 bytes each. Set in values.local.yaml.
 adminTokens: []
-# - "aabbcc..."
 
 service:
   port: 8080
+
+resources: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
 
 brinekey:
   enabled: true
@@ -39,15 +44,22 @@ brinekey:
     repository: ""
     tag: ""
     pullPolicy: ""
-  test:
-    enabled: true
-    namespace: test-ns
-    serviceAccount: test-sa
-    resource: test-ns/test-rs
-    value: test-value
+  resources: {}
+  podAnnotations: {}
+  restrictTokenCreation: false
+  tokenRequestNamespaces: []
 
 ingress:
   enabled: true
   host: brinecrypt.lan
   entryPoints:
     - web
+  middlewares: []
+  tls: null
+
+networkPolicy:
+  enabled: false
+  ingressFrom:
+    - namespaceSelector: {}
+  egress:
+    - {}

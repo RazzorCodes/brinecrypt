@@ -17,15 +17,46 @@ spec:
       labels:
         app: brinekey
         app.kubernetes.io/instance: {{ .Release.Name }}
-        app.kubernetes.io/name: brinecrypt
+        app.kubernetes.io/name: {{ include "brinecrypt.name" . }}
+      {{- with .Values.brinekey.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "brinekey.name" . }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: brinekey
           image: {{ default .Values.image.repository .Values.brinekey.image.repository }}:{{ default .Values.image.tag .Values.brinekey.image.tag }}
           imagePullPolicy: {{ default .Values.image.pullPolicy .Values.brinekey.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           command: ["./brinekey-operator"]
+          ports:
+            - name: health
+              containerPort: 8081
           env:
             - name: BRINEKEY_BRINECRYPT_URL
               value: {{ include "brinekey.brinecryptURL" . | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.brinekey.resources | nindent 12 }}
 {{- end }}

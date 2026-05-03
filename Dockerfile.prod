@@ -26,8 +26,8 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN adduser -D -u 10001 brinecrypt
 
 WORKDIR /home/brinecrypt
-COPY --from=builder /out/brinecrypt ./brinecrypt
-COPY --from=builder /out/brinekey-operator ./brinekey-operator
+COPY --chmod=755 --from=builder /out/brinecrypt ./brinecrypt
+COPY --chmod=755 --from=builder /out/brinekey-operator ./brinekey-operator
 
 USER brinecrypt
 EXPOSE 8080
