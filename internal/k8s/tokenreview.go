@@ -3,8 +3,11 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
+
+	"brinecrypt/internal/authz"
 
 	authv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,13 +36,21 @@ func getClient() (*kubernetes.Clientset, error) {
 // ValidateSAToken validates a k8s SA JWT via the TokenReview API.
 // Returns the SA namespace and name on success.
 func ValidateSAToken(ctx context.Context, token string) (namespace, name string, err error) {
+	audience := strings.TrimSpace(os.Getenv("BRINECRYPT_SA_TOKEN_AUDIENCE"))
+	if audience == "" {
+		audience = "brinekey"
+	}
+
 	c, err := getClient()
 	if err != nil {
 		return "", "", fmt.Errorf("k8s client unavailable: %w", err)
 	}
 
 	review, err := c.AuthenticationV1().TokenReviews().Create(ctx, &authv1.TokenReview{
-		Spec: authv1.TokenReviewSpec{Token: token},
+		Spec: authv1.TokenReviewSpec{
+			Token:     token,
+			Audiences: []string{audience},
+		},
 	}, metav1.CreateOptions{})
 	if err != nil {
 		return "", "", fmt.Errorf("tokenreview failed: %w", err)
@@ -49,11 +60,14 @@ func ValidateSAToken(ctx context.Context, token string) (namespace, name string,
 		return "", "", fmt.Errorf("token not authenticated")
 	}
 
-	// Username format: system:serviceaccount:<namespace>:<name>
-	parts := strings.SplitN(review.Status.User.Username, ":", 4)
-	if len(parts) != 4 || parts[0] != "system" || parts[1] != "serviceaccount" {
-		return "", "", fmt.Errorf("not a service account token")
+	subject, err := authz.NormalizeSubject(review.Status.User.Username)
+	if err != nil {
+		return "", "", fmt.Errorf("not a service account token: %w", err)
 	}
 
-	return parts[2], parts[3], nil
+	parts := strings.SplitN(subject, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("invalid normalized subject: %q", subject)
+	}
+	return parts[0], parts[1], nil
 }
