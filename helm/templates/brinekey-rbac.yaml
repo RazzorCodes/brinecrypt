@@ -1,0 +1,50 @@
+{{- if .Values.brinekey.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "brinekey.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "brinekey.name" . }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+  - apiGroups: ["brinekey.brinecrypt.io"]
+    resources: ["brinecryptsecrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["brinekey.brinecrypt.io"]
+    resources: ["brinecryptsecrets/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "brinekey.name" . }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "brinekey.name" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "brinekey.name" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

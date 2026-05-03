@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brinekey-consumer
+  namespace: test-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brinekey-consumer
+  template:
+    metadata:
+      labels:
+        app: brinekey-consumer
+    spec:
+      serviceAccountName: test-sa
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "BRINEKEY_VALUE=${BRINEKEY_VALUE}";
+              echo "mounted file:";
+              cat /var/run/brinekey/value;
+              sleep 3600
+          env:
+            - name: BRINEKEY_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: brinekey-test-secret
+                  key: value
+          volumeMounts:
+            - name: brinekey-secret
+              mountPath: /var/run/brinekey
+              readOnly: true
+      volumes:
+        - name: brinekey-secret
+          secret:
+            secretName: brinekey-test-secret

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "brinecrypt.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "brinecrypt.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "brinecrypt.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "brinecrypt.name" . }}
+      containers:
+        - name: brinecrypt
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: brinecrypt-secrets
+                  key: database-url
+            - name: BRINECRYPT_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: brinecrypt-secrets
+                  key: kek
+            - name: BRINECRYPT_SYNC_NAMESPACE
+              value: {{ include "brinecrypt.syncNamespace" . | quote }}
+            - name: BRINECRYPT_SYNC_CONFIGMAP
+              value: brinecrypt-sa-permissions
+            - name: BRINECRYPT_ADMIN_TOKENS_CONFIGMAP
+              value: brinecrypt-admin-tokens

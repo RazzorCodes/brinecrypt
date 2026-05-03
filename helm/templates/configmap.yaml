@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: brinecrypt-sa-permissions
+  namespace: {{ include "brinecrypt.syncNamespace" . }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+data:
+  permissions: |
+    {{ .Values.saPermissions | toPrettyJson | nindent 4 }}

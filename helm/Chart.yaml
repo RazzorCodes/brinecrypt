@@ -1,0 +1,7 @@
+apiVersion: v2
+name: brinecrypt
+description: Encrypted secret and data store with k8s SA authentication
+type: application
+version: 0.1.0
+appVersion: "latest"
+

@@ -1,0 +1,5 @@
+tmp/
+app.log
+helm/values.local.yaml
+helm/charts/
+.aider*

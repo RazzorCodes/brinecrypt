@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"brinecrypt/internal/authz"
 	"brinecrypt/internal/logger"
 	"brinecrypt/internal/orm"
 	"brinecrypt/internal/store"
@@ -121,8 +122,13 @@ func syncSA(db *gorm.DB, entry saEntry) error {
 
 	var permissions []orm.Permission
 	for _, p := range entry.Permissions {
-		if err := orm.ValidateResourcePattern(p.ResourcePattern); err != nil {
+		normalizedPattern, err := authz.NormalizeResource(p.ResourcePattern)
+		if err != nil {
 			logger.Warn("SA sync: invalid pattern " + p.ResourcePattern + ": " + err.Error())
+			continue
+		}
+		if err := orm.ValidateResourcePattern(normalizedPattern); err != nil {
+			logger.Warn("SA sync: invalid pattern " + normalizedPattern + ": " + err.Error())
 			continue
 		}
 		v, err := orm.ParseVerb(p.Verb)
@@ -130,7 +136,7 @@ func syncSA(db *gorm.DB, entry saEntry) error {
 			logger.Warn("SA sync: invalid verb " + p.Verb + ": " + err.Error())
 			continue
 		}
-		permissions = append(permissions, orm.NewPermission(p.ResourcePattern, v, nil))
+		permissions = append(permissions, orm.NewPermission(normalizedPattern, v, nil))
 	}
 
 	if err := store.ReplaceSAPermissions(db, sa.Id, permissions); err != nil {

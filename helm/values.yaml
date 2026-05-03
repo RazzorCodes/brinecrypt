@@ -1,0 +1,53 @@
+image:
+  repository: zot.lan/brinecrypt
+  tag: latest
+  pullPolicy: Always
+
+# Brinecrypt KEK — hex-encoded 32 bytes (64 chars). Set in values.local.yaml.
+kek: ""
+
+database:
+  # Full postgres connection string for brinecrypt (DATABASE_URL env var).
+  url: ""
+  # Postgres admin URL pointing at the 'postgres' db — used only by the db-init Job.
+  pgUrl: ""
+
+# k8s namespace where ConfigMaps live (sa-permissions, admin-tokens).
+# Defaults to the release namespace.
+syncNamespace: ""
+
+# SA permissions — desired state synced into brinecrypt-sa-permissions ConfigMap.
+saPermissions:
+  service_accounts: []
+  # - namespace: kube-ex
+  #   name: my-sa
+  #   permissions:
+  #     - resource_pattern: "mynamespace/mysecret"
+  #       verb: read
+
+# Bootstrap admin tokens — hex strings, 32 bytes each. Set in values.local.yaml.
+adminTokens: []
+# - "aabbcc..."
+
+service:
+  port: 8080
+
+brinekey:
+  enabled: true
+  brinecryptUrl: ""
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+  test:
+    enabled: true
+    namespace: test-ns
+    serviceAccount: test-sa
+    resource: test-ns/test-rs
+    value: test-value
+
+ingress:
+  enabled: true
+  host: brinecrypt.lan
+  entryPoints:
+    - web

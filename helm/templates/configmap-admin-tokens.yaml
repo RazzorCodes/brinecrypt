@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: brinecrypt-admin-tokens
+  namespace: {{ include "brinecrypt.syncNamespace" . }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+data:
+  admin_tokens: |
+    {{ .Values.adminTokens | toJson }}

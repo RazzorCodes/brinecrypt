@@ -1,0 +1,31 @@
+{{- if .Values.brinekey.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "brinekey.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brinekey
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: brinekey
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: brinecrypt
+    spec:
+      serviceAccountName: {{ include "brinekey.name" . }}
+      containers:
+        - name: brinekey
+          image: {{ default .Values.image.repository .Values.brinekey.image.repository }}:{{ default .Values.image.tag .Values.brinekey.image.tag }}
+          imagePullPolicy: {{ default .Values.image.pullPolicy .Values.brinekey.image.pullPolicy }}
+          command: ["./brinekey-operator"]
+          env:
+            - name: BRINEKEY_BRINECRYPT_URL
+              value: {{ include "brinekey.brinecryptURL" . | quote }}
+{{- end }}
