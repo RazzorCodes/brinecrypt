@@ -28,6 +28,7 @@ func main() {
 	ctx := context.Background()
 	k8s.StartSync(ctx, db)
 	k8s.StartAdminTokenSync(ctx)
+	k8s.StartCORSSync(ctx)
 
 	inner := http.NewServeMux()
 
@@ -51,6 +52,7 @@ func main() {
 	inner.HandleFunc("GET /admin/audit", api.GetAuditLog(db))
 
 	// resource
+	inner.HandleFunc("GET /api/v1/namespaces", api.ListNamespaces(db))
 	inner.HandleFunc("GET /api/v1/{namespace}", api.ListResourcesInNamespace(db))
 	inner.HandleFunc("GET /api/v1/{namespace}/{name}", api.GetResource(db))
 	inner.HandleFunc("PUT /api/v1/{namespace}/{name}", api.PutResource(db))
@@ -64,7 +66,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /ready", api.Ready(db))
-	mux.Handle("/", auth.AuthMiddleware(db, inner))
+	mux.Handle("/", api.CORSMiddleware(auth.AuthMiddleware(db, inner)))
 
 	http.ListenAndServe(":8080", mux)
 }

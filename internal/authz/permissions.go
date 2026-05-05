@@ -52,6 +52,38 @@ func permissionsForPrincipal(db *gorm.DB, principal *Principal) ([]orm.Permissio
 	}
 }
 
+// NamespacesForPrincipal returns all namespaces the principal has at least one
+// non-expired verb on, mapped to the set of verbs for that namespace.
+func NamespacesForPrincipal(db *gorm.DB, principal *Principal) (map[string][]orm.Verb, error) {
+	permissions, err := permissionsForPrincipal(db, principal)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string][]orm.Verb)
+	for _, p := range permissions {
+		if p.ExpiresAt != nil && time.Now().After(*p.ExpiresAt) {
+			continue
+		}
+		ns := splitSlash(p.ResourcePattern)[0]
+		if ns == "*" || ns == "_" {
+			continue
+		}
+		verbs := result[ns]
+		duplicate := false
+		for _, v := range verbs {
+			if v == p.Verb {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result[ns] = append(result[ns], p.Verb)
+		}
+	}
+	return result, nil
+}
+
 func matchesPattern(resource string, pattern string) bool {
 	if pattern == "*/*" {
 		return true

@@ -67,6 +67,10 @@ spec:
               value: brinecrypt-sa-permissions
             - name: BRINECRYPT_ADMIN_TOKENS_CONFIGMAP
               value: brinecrypt-admin-tokens
+            {{- if .Values.corsOrigins }}
+            - name: BRINECRYPT_CORS_CONFIGMAP
+              value: {{ include "brinecrypt.fullname" . }}-cors
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

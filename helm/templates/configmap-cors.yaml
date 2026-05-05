@@ -1,0 +1,12 @@
+{{- if .Values.corsOrigins }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "brinecrypt.fullname" . }}-cors
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "brinecrypt.labels" . | nindent 4 }}
+data:
+  allowed_origins: |
+    {{- .Values.corsOrigins | toJson | nindent 4 }}
+{{- end }}

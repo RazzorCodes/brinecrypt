@@ -43,7 +43,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    resourceNames: ["brinecrypt-sa-permissions", "brinecrypt-admin-tokens"]
+    resourceNames: ["brinecrypt-sa-permissions", "brinecrypt-admin-tokens"{{ if .Values.corsOrigins }}, {{ include "brinecrypt.fullname" . | printf "%s-cors" | quote }}{{ end }}]
     verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -92,6 +92,35 @@ func decryptValue(rv *orm.ResourceValue) error {
 	return nil
 }
 
+type NamespacePermissions struct {
+	Namespace string     `json:"namespace"`
+	Verbs     []orm.Verb `json:"verbs"`
+}
+
+func ListNamespaces(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := principalFromContext(r)
+		if !ok {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		nsVerbs, err := authz.NamespacesForPrincipal(db, principal)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		result := make([]NamespacePermissions, 0, len(nsVerbs))
+		for ns, verbs := range nsVerbs {
+			result = append(result, NamespacePermissions{Namespace: ns, Verbs: verbs})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
+}
+
 func GetResourceValue(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := principalFromContext(r)

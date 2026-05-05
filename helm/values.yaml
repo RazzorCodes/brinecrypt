@@ -31,6 +31,9 @@ adminTokens: []
 service:
   port: 8080
 
+# CORS allowed origins. Empty = disabled. Use ["*"] or specific origin URLs.
+corsOrigins: []
+
 resources: {}
 podAnnotations: {}
 nodeSelector: {}

@@ -1,0 +1,19 @@
+kek: "---" # fill this
+
+database:
+  url: "---"
+  pgUrl: "---"
+
+adminTokens:
+  - "---"
+
+saPermissions:
+  service_accounts:
+    - namespace: k3s-test-ns
+      name: k3s-test
+      permissions:
+        - resource_pattern: "test-ns/test-rs"
+          verb: read
+
+corsOrigins:
+  - "http://seaglass.lan"
