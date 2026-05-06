@@ -37,6 +37,12 @@ func CreateSA(db *gorm.DB, sa *orm.SA) error {
 	return db.Create(sa).Error
 }
 
+func ListSA(db *gorm.DB) ([]orm.SA, error) {
+	var sas []orm.SA
+	err := db.Find(&sas).Error
+	return sas, err
+}
+
 func GetOrCreateSA(db *gorm.DB, namespace, name string) (*orm.SA, error) {
 	sa, err := GetSA(db, namespace, name)
 	if err == gorm.ErrRecordNotFound {

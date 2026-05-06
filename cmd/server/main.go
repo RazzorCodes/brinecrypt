@@ -50,6 +50,7 @@ func main() {
 	inner.HandleFunc("POST /admin/permissions", api.GrantPermissions(db))
 	inner.HandleFunc("DELETE /admin/permissions", api.RevokePermissions(db))
 	inner.HandleFunc("GET /admin/audit", api.GetAuditLog(db))
+	inner.HandleFunc("GET /admin/principals", api.Principals(db))
 
 	// resource
 	inner.HandleFunc("GET /api/v1/namespaces", api.ListNamespaces(db))
