@@ -41,6 +41,7 @@ const (
 func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
 	public := map[string]bool{
 		"/auth/login": true,
+		"/auth/anon":  true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/_") {
@@ -138,7 +139,14 @@ func resolvePAT(db *gorm.DB, token string) (*orm.User, error) {
 }
 
 func resolveCapabilityToken(db *gorm.DB, token string) (*orm.CapabilityToken, error) {
-	return store.GetCapabilityTokenByHash(db, HashToken(token))
+	ct, err := store.GetCapabilityTokenByHash(db, HashToken(token))
+	if err != nil {
+		return nil, err
+	}
+	if ct.ExpiresAt != nil && time.Now().After(*ct.ExpiresAt) {
+		return nil, fmt.Errorf("capability token expired")
+	}
+	return ct, nil
 }
 
 func resolveSAJWT(ctx context.Context, db *gorm.DB, token string) (*orm.SA, error) {

@@ -36,6 +36,7 @@ func main() {
 	inner.HandleFunc("POST /auth/login", api.Login(db))
 	inner.HandleFunc("POST /auth/refresh", api.Refresh(db))
 	inner.HandleFunc("DELETE /auth/logout", api.Logout(db))
+	inner.HandleFunc("POST /auth/anon", api.AnonToken(db))
 
 	inner.HandleFunc("POST /api/v1/tokens/pat", api.IssuePAT(db))
 	inner.HandleFunc("DELETE /api/v1/tokens/pat/{id}", api.RevokePAT(db))
@@ -51,6 +52,9 @@ func main() {
 	inner.HandleFunc("DELETE /admin/permissions", api.RevokePermissions(db))
 	inner.HandleFunc("GET /admin/audit", api.GetAuditLog(db))
 	inner.HandleFunc("GET /admin/principals", api.Principals(db))
+	inner.HandleFunc("GET /admin/anon/permissions", api.ListAnonPermissions(db))
+	inner.HandleFunc("POST /admin/anon/permissions", api.AddAnonPermissions(db))
+	inner.HandleFunc("DELETE /admin/anon/permissions/{id}", api.DeleteAnonPermission(db))
 
 	// resource
 	inner.HandleFunc("GET /api/v1/namespaces", api.ListNamespaces(db))

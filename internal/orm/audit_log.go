@@ -26,6 +26,7 @@ const (
 	ActionAuthLogin   = "auth.login"
 	ActionAuthLogout  = "auth.logout"
 	ActionAuthRefresh = "auth.refresh"
+	ActionAuthAnon    = "auth.anon"
 
 	ActionTokenPATIssue  = "token.pat.issue"
 	ActionTokenPATRevoke = "token.pat.revoke"

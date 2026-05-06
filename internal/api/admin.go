@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"brinecrypt/internal/auth"
@@ -312,6 +313,78 @@ func RevokePermissions(db *gorm.DB) http.HandlerFunc {
 		}
 
 		WriteAudit(db, r, actorFromRequest(r), orm.ActionPermRevoke, body.Principal, orm.AuditStatusOK)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func ListAnonPermissions(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMetaUser(db, r, orm.VerbTypeList) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		perms, err := store.ListAnonPermissions(db)
+		if err != nil {
+			logger.Error("list anon permissions: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(perms)
+	}
+}
+
+func AddAnonPermissions(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMetaUser(db, r, orm.VerbTypeWrite) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var entries []permissionEntry
+		if err := json.NewDecoder(r.Body).Decode(&entries); err != nil || len(entries) == 0 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		for _, entry := range entries {
+			if err := authz.ValidateAddPattern(entry.ResourcePattern); err != nil {
+				http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		for _, entry := range entries {
+			p := orm.AnonPermission{
+				ResourcePattern: entry.ResourcePattern,
+				Verb:            entry.Verb,
+				ExpiresAt:       entry.ExpiresAt,
+			}
+			if err := store.CreateAnonPermission(db, &p); err != nil {
+				logger.Error("create anon permission: " + err.Error())
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+		WriteAudit(db, r, actorFromRequest(r), orm.ActionPermGrant, "_/anon", orm.AuditStatusOK)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func DeleteAnonPermission(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireMetaUser(db, r, orm.VerbTypeWrite) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := store.DeleteAnonPermission(db, uint(id)); err != nil {
+			logger.Error("delete anon permission: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		WriteAudit(db, r, actorFromRequest(r), orm.ActionPermRevoke, "_/anon", orm.AuditStatusOK)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

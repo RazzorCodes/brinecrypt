@@ -3,13 +3,27 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"brinecrypt/internal/auth"
+	"brinecrypt/internal/logger"
 	"brinecrypt/internal/orm"
+	"brinecrypt/internal/store"
 
 	"gorm.io/gorm"
 )
+
+func anonTokenTTL() time.Duration {
+	if s := os.Getenv("ANON_TOKEN_TTL_SECONDS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return time.Hour
+}
 
 type LoginRequestBody struct {
 	User string `json:"user"`
@@ -89,5 +103,62 @@ func Logout(db *gorm.DB) http.HandlerFunc {
 
 		WriteAudit(db, r, actor, orm.ActionAuthLogout, actor, orm.AuditStatusOK)
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func AnonToken(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anonPerms, err := store.ListAnonPermissions(db)
+		if err != nil {
+			logger.Error("list anon permissions: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if len(anonPerms) == 0 {
+			http.Error(w, "anonymous access not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		raw, err := auth.GenerateToken()
+		if err != nil {
+			logger.Error("generate anon token: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		token := auth.CapabilityPrefix + raw
+		ttl := anonTokenTTL()
+		exp := time.Now().Add(ttl)
+
+		ct := &orm.CapabilityToken{
+			IssuedBy:  nil,
+			TokenHash: auth.HashToken(token),
+			ExpiresAt: &exp,
+		}
+		if err := store.CreateCapabilityToken(db, ct); err != nil {
+			logger.Error("create anon capability token: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		for _, ap := range anonPerms {
+			p := orm.NewPermission(ap.ResourcePattern, ap.Verb, ap.ExpiresAt)
+			if err := store.CreatePermission(db, &p); err != nil {
+				logger.Error("create anon permission: " + err.Error())
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if err := store.AddPermissionToCapabilityToken(db, ct.Id, p.Id); err != nil {
+				logger.Error("link anon permission: " + err.Error())
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		WriteAudit(db, r, "anon", orm.ActionAuthAnon, "anon", orm.AuditStatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"token":      token,
+			"expires_in": int(ttl.Seconds()),
+		})
 	}
 }

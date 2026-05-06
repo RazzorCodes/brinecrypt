@@ -2,6 +2,8 @@ package authz
 
 import (
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"brinecrypt/internal/orm"
@@ -66,7 +68,7 @@ func NamespacesForPrincipal(db *gorm.DB, principal *Principal) (map[string][]orm
 			continue
 		}
 		ns := splitSlash(p.ResourcePattern)[0]
-		if ns == "*" || ns == "_" {
+		if ns == "*" || ns == "_" || strings.ContainsAny(ns, "*?[") {
 			continue
 		}
 		verbs := result[ns]
@@ -90,8 +92,8 @@ func matchesPattern(resource string, pattern string) bool {
 	}
 	pParts := splitSlash(pattern)
 	rParts := splitSlash(resource)
-	nsMatch := pParts[0] == "*" || pParts[0] == rParts[0]
-	resMatch := pParts[1] == "*" || pParts[1] == rParts[1]
+	nsMatch, _ := path.Match(pParts[0], rParts[0])
+	resMatch, _ := path.Match(pParts[1], rParts[1])
 	return nsMatch && resMatch
 }
 

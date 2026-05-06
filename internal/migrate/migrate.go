@@ -14,6 +14,7 @@ func Migrate(db *gorm.DB) error {
 		&orm.Session{},
 		&orm.PAT{},
 		&orm.CapabilityToken{},
+		&orm.AnonPermission{},
 		// ---
 		&orm.Namespace{},
 		&orm.EncryptionKey{},
