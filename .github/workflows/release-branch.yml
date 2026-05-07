@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Wait for Docker
+        run: until docker info >/dev/null 2>&1; do sleep 1; done
+
       - name: Build and push image
         run: |
           docker buildx build \
