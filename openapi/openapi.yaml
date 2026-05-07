@@ -221,23 +221,50 @@ paths:
         '404':
           description: Token not found
 
-  /admin/users:
+  /admin/user:
     get:
       tags:
         - Admin
-      summary: List all users
-      operationId: listUsers
+      summary: User/principal query endpoint (multi-mode)
+      description: |
+        Behaviour is controlled by the `op` query parameter:
+
+        **No `op` (self-info):** Returns the permissions of the currently authenticated user. Only available to session and PAT callers (not capability tokens or service accounts). No additional permission required.
+
+        **`?op=list`:** Lists all user names. Requires a session token with `_/users` list permission.
+
+        **`?op=query`:** Returns permissions for a set of principals (users, service accounts, capability tokens, or PATs by ID). Requires a session token with `_/users` read permission. Request body must contain a `query` array where each entry is a discriminated object with exactly one of: `username`, `sa`+`namespace`, `cap_token` (integer ID), or `pat` (integer ID). PAT results include the PAT metadata, its owning user, and the user's current permissions (PATs inherit permissions dynamically at request time).
+      operationId: adminUser
       security:
         - bearerAuth: []
+      parameters:
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [list, query]
+          description: Operation mode. Omit for self-info.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserQueryRequest'
       responses:
         '200':
-          description: List of users
+          description: |
+            **No op:** `UserResponse` object for the calling user.
+
+            **`?op=list`:** JSON array of username strings.
+
+            **`?op=query`:** `{"results": {"user/<name>": {"permissions": [...]}, "sa/<ns>/<name>": {...}, "cap_token/<id>": {"permissions": [...], "expires_at": "..."}}}`
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UserResponse'
+                {}
+        '400':
+          description: Bad request (unknown op or invalid query body)
         '403':
           description: Forbidden
         '500':
@@ -265,31 +292,7 @@ paths:
         '500':
           description: Internal server error
 
-  /admin/users/{name}:
-    get:
-      tags:
-        - Admin
-      summary: Get user by name
-      operationId: getUserByName
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: User details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserResponse'
-        '403':
-          description: Forbidden
-        '404':
-          description: User not found
+  /admin/user/{name}:
     delete:
       tags:
         - Admin
@@ -308,6 +311,26 @@ paths:
           description: User successfully deleted
         '403':
           description: Forbidden
+        '500':
+          description: Internal server error
+
+  /admin/anon:
+    get:
+      tags:
+        - Admin
+      summary: Get anonymous access capabilities (public)
+      description: |
+        Returns the list of anonymous permissions that are issued to any caller of `/auth/anon`. This endpoint requires no authentication — the anonymous permission set is not considered secret information and is intended to be self-discoverable by unauthenticated clients.
+      operationId: getAnonInfo
+      responses:
+        '200':
+          description: List of anonymous permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnonPermission'
         '500':
           description: Internal server error
 
@@ -531,15 +554,25 @@ paths:
         '500':
           description: Internal server error
 
-  /api/v1/namespaces:
+  /api/v1/namespace:
     get:
       tags:
         - Resources
       summary: List namespaces accessible to the caller
-      description: Returns each namespace the caller has at least one non-expired permission on, along with the verbs available in that namespace. Namespaces granted only via glob patterns (e.g. `names-*`) are excluded from this listing.
+      description: |
+        Returns each namespace the caller has at least one non-expired permission on, along with
+        the verbs available in that namespace. The result is the union of the caller's own permissions
+        and the anonymous permission set. Unauthenticated callers receive only anon-covered namespaces.
+        Namespaces granted only via glob patterns are excluded.
+        Use `?op=list`.
       operationId: listNamespaces
-      security:
-        - bearerAuth: []
+      parameters:
+        - name: op
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [list]
       responses:
         '200':
           description: List of namespaces and their available verbs
@@ -549,85 +582,102 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/NamespacePermissions'
-        '401':
-          description: Unauthorized
+        '400':
+          description: Invalid op parameter
         '500':
           description: Internal server error
-
-  /api/v1/{namespace}:
-    get:
+    post:
       tags:
         - Resources
       summary: List resources in a namespace
-      operationId: listResourcesInNamespace
-      security:
-        - bearerAuth: []
+      description: |
+        Returns all resources in the given namespace along with the namespace-level verbs the
+        caller holds. Accessible to unauthenticated callers if the namespace is covered by the
+        anonymous permission set.
+        Use `?op=query`.
+      operationId: queryNamespace
       parameters:
-        - name: namespace
-          in: path
+        - name: op
+          in: query
           required: true
           schema:
             type: string
+            enum: [query]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamespaceQueryRequest'
       responses:
         '200':
-          description: List of resource summaries
+          description: Namespace resources and caller verbs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ResourceSummary'
-        '401':
-          description: Unauthorized
+                $ref: '#/components/schemas/NamespaceQueryResponse'
+        '400':
+          description: Invalid request body or op parameter
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal server error
 
-  /api/v1/{namespace}/{name}:
-    get:
+  /api/v1/resource:
+    post:
       tags:
         - Resources
-      summary: Get a resource by name (latest version)
-      operationId: getResource
-      security:
-        - bearerAuth: []
+      summary: Query a resource or list its versions
+      description: |
+        Two modes selected by `?op=`:
+        - `op=query`: Fetch a resource. Provide `namespace`+`name` for the latest version, add
+          `version` (number, UUID, or `"latest"`) for a specific version, or provide `uuid` alone
+          to fetch a specific version by its UUID directly.
+        - `op=versions`: List all versions of a resource. Provide `namespace`+`name`.
+        Accessible to unauthenticated callers if the resource is covered by the anonymous permission set.
+      operationId: queryResource
       parameters:
-        - name: namespace
-          in: path
+        - name: op
+          in: query
           required: true
           schema:
             type: string
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
+            enum: [query, versions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceQueryRequest'
       responses:
         '200':
-          description: Resource details including the latest value
+          description: Resource details or version list
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Resource'
-        '401':
-          description: Unauthorized
+                oneOf:
+                  - $ref: '#/components/schemas/Resource'
+                  - $ref: '#/components/schemas/ResourceValue'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/ResourceValueSummary'
+        '400':
+          description: Invalid request body or op parameter
+        '403':
+          description: Forbidden
         '404':
           description: Resource not found
+        '500':
+          description: Internal server error
     put:
       tags:
         - Resources
       summary: Create or update a resource
+      description: |
+        Creates or updates a resource. `type` is required on every write and is mutable —
+        the latest successful write determines the resource's current type.
+        Accessible to unauthenticated callers only if the anonymous permission set grants write on the resource.
       operationId: putResource
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: namespace
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
       requestBody:
         required: true
         content:
@@ -639,132 +689,30 @@ paths:
           description: Resource successfully created or updated
         '400':
           description: Invalid request body
-        '401':
-          description: Unauthorized
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal server error
     delete:
       tags:
         - Resources
       summary: Delete a resource
       operationId: deleteResource
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: namespace
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteResourceRequest'
       responses:
         '204':
           description: Resource successfully deleted
-        '401':
-          description: Unauthorized
+        '403':
+          description: Forbidden
         '404':
           description: Resource not found
-
-  /api/v1/{namespace}/{name}/versions:
-    get:
-      tags:
-        - Resources
-      summary: List all versions of a resource
-      operationId: listResourceVersions
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: namespace
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: List of resource version summaries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ResourceValueSummary'
-        '401':
-          description: Unauthorized
-        '404':
-          description: Resource not found
-
-  /api/v1/{namespace}/{name}/{version}:
-    get:
-      tags:
-        - Resources
-      summary: Get a specific version of a resource
-      operationId: getResourceByVersion
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: namespace
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: version
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: uint64
-      responses:
-        '200':
-          description: Resource version details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ResourceValue'
-        '400':
-          description: Invalid version number
-        '401':
-          description: Unauthorized
-        '404':
-          description: Resource or version not found
-
-  /api/v1/uuid/{uuid}:
-    get:
-      tags:
-        - Resources
-      summary: Get a resource value by its unique UUID
-      operationId: getResourceValueByUUID
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: uuid
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Resource value details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ResourceValue'
-        '401':
-          description: Unauthorized
-        '404':
-          description: Resource value not found
+        '500':
+          description: Internal server error
 
 components:
   securitySchemes:
@@ -1162,13 +1110,102 @@ components:
                     items:
                       $ref: '#/components/schemas/Permission'
 
+    AdminUserQueryEntry:
+      type: object
+      description: Discriminated union — set exactly one of username, sa+namespace, cap_token, or pat.
+      properties:
+        username:
+          type: string
+          description: Query a user by name.
+        namespace:
+          type: string
+          description: Required when querying a service account.
+        sa:
+          type: string
+          description: Service account name (requires namespace).
+        cap_token:
+          type: integer
+          format: uint64
+          description: Capability token ID.
+        pat:
+          type: integer
+          format: uint64
+          description: PAT ID. Returns the PAT metadata, its owning user, and the user's current permissions (PATs inherit permissions dynamically).
+
+    AdminUserQueryRequest:
+      type: object
+      properties:
+        query:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserQueryEntry'
+      required:
+        - query
+
+    NamespaceQueryRequest:
+      type: object
+      properties:
+        namespace:
+          type: string
+      required:
+        - namespace
+
+    NamespaceQueryResponse:
+      type: object
+      properties:
+        namespace:
+          type: string
+        verbs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Verb'
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceSummary'
+
+    ResourceQueryRequest:
+      type: object
+      description: |
+        Discriminated union — provide one of:
+        - `namespace` + `name` (optionally `version`: number, UUID string, or "latest")
+        - `uuid` alone
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+          description: Version number, UUID, or "latest"
+        uuid:
+          type: string
+          format: uuid
+
     PutResourceRequest:
       type: object
       properties:
+        namespace:
+          type: string
+        name:
+          type: string
         type:
           $ref: '#/components/schemas/ResourceType'
         value:
           type: string
       required:
+        - namespace
+        - name
         - type
         - value
+
+    DeleteResourceRequest:
+      type: object
+      properties:
+        namespace:
+          type: string
+        name:
+          type: string
+      required:
+        - namespace
+        - name
