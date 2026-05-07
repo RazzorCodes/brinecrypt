@@ -8,6 +8,9 @@ on:
 jobs:
   release:
     runs-on: arc-runner-set
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: Fetch SHA from brinecrypt
