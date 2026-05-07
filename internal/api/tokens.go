@@ -27,7 +27,10 @@ func IssuePAT(db *gorm.DB) http.HandlerFunc {
 		var body struct {
 			Expiry *time.Time `json:"expiry,omitempty"`
 		}
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 
 		raw, err := auth.GenerateToken()
 		if err != nil {
@@ -128,28 +131,28 @@ func IssueCapabilityToken(db *gorm.DB) http.HandlerFunc {
 		}
 		token := auth.CapabilityPrefix + raw
 
-		ct := &orm.CapabilityToken{
-			IssuedBy:  &user.Id,
-			TokenHash: auth.HashToken(token),
-		}
-		if err := store.CreateCapabilityToken(db, ct); err != nil {
-			logger.Error("create capability token: " + err.Error())
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			ct := &orm.CapabilityToken{
+				IssuedBy:  &user.Id,
+				TokenHash: auth.HashToken(token),
+			}
+			if err := store.CreateCapabilityToken(tx, ct); err != nil {
+				return err
+			}
+			for _, entry := range body.Permissions {
+				p := orm.NewPermission(entry.ResourcePattern, entry.Verb, entry.ExpiresAt)
+				if err := store.CreatePermission(tx, &p); err != nil {
+					return err
+				}
+				if err := store.AddPermissionToCapabilityToken(tx, ct.Id, p.Id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			logger.Error("issue capability token: " + err.Error())
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
-		}
-
-		for _, entry := range body.Permissions {
-			p := orm.NewPermission(entry.ResourcePattern, entry.Verb, entry.ExpiresAt)
-			if err := store.CreatePermission(db, &p); err != nil {
-				logger.Error("create permission: " + err.Error())
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if err := store.AddPermissionToCapabilityToken(db, ct.Id, p.Id); err != nil {
-				logger.Error("link permission to capability token: " + err.Error())
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
 		}
 
 		WriteAudit(db, r, "user:"+user.Name, orm.ActionTokenCapIssue, "user:"+user.Name, orm.AuditStatusOK)

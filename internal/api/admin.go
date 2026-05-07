@@ -18,9 +18,12 @@ import (
 	"gorm.io/gorm"
 )
 
-const metaNS = "_"
-const metaUsersResource = "users"
-const metaSAResource = "sa"
+const (
+	metaNS            = "_"
+	metaNSResource    = "ns"
+	metaUsersResource = "users"
+	metaSAResource    = "sa"
+)
 
 type userResponse struct {
 	Name        string           `json:"name"`
@@ -92,9 +95,14 @@ func CreateUser(db *gorm.DB) http.HandlerFunc {
 					p := orm.NewPermission(metaNS+"/"+grant.resource, verb, nil)
 					if err := store.CreatePermission(db, &p); err != nil {
 						logger.Error("bootstrap grant failed: " + err.Error())
-						continue
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
 					}
-					store.AddPermissionToUser(db, u.Id, p.Id)
+					if err := store.AddPermissionToUser(db, u.Id, p.Id); err != nil {
+						logger.Error("bootstrap grant failed: " + err.Error())
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
 				}
 			}
 		}
@@ -513,7 +521,11 @@ type saDetail struct {
 
 func Principals(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		var listMode bool
 		var refs []saRef
 		if len(body) == 0 {

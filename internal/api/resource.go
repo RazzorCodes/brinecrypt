@@ -92,14 +92,11 @@ func decryptValue(rv *orm.ResourceValue) error {
 	return nil
 }
 
-const metaNSResource = "ns"
-
 type NamespacePermissions struct {
 	Namespace string     `json:"namespace"`
 	Verbs     []orm.Verb `json:"verbs"`
 }
 
-// hasMetaNS checks if the principal holds _/ns <verb> permission.
 func hasMetaNS(db *gorm.DB, principal *authz.Principal, verb orm.Verb) bool {
 	if principal == nil {
 		return false
@@ -108,8 +105,6 @@ func hasMetaNS(db *gorm.DB, principal *authz.Principal, verb orm.Verb) bool {
 	return ok
 }
 
-// collectMetaVerbs returns the subset of [list,read,write,delete] that the
-// principal holds on _/ns. These are inherited by every regular namespace.
 func collectMetaVerbs(db *gorm.DB, principal *authz.Principal) []orm.Verb {
 	out := make([]orm.Verb, 0)
 	for _, v := range []orm.Verb{orm.VerbTypeList, orm.VerbTypeRead, orm.VerbTypeWrite, orm.VerbTypeDelete} {
@@ -120,7 +115,6 @@ func collectMetaVerbs(db *gorm.DB, principal *authz.Principal) []orm.Verb {
 	return out
 }
 
-// unionVerbs returns a deduplicated union of a and b.
 func unionVerbs(a, b []orm.Verb) []orm.Verb {
 	seen := make(map[orm.Verb]bool, len(a)+len(b))
 	out := make([]orm.Verb, 0, len(a)+len(b))
@@ -133,7 +127,6 @@ func unionVerbs(a, b []orm.Verb) []orm.Verb {
 	return out
 }
 
-// NamespaceHandler handles GET and POST /api/v1/namespace.
 func NamespaceHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal, _ := principalFromContext(r)
@@ -314,7 +307,6 @@ type resourceQueryRequest struct {
 	UUID      string `json:"uuid"`
 }
 
-// ResourceHandler handles POST/PUT/DELETE /api/v1/resource.
 func ResourceHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal, _ := principalFromContext(r)
@@ -386,7 +378,7 @@ func handleGetByUUID(db *gorm.DB, w http.ResponseWriter, r *http.Request, princi
 		return
 	}
 	if !allowed {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
@@ -427,7 +419,6 @@ func handleGetResource(db *gorm.DB, w http.ResponseWriter, r *http.Request, prin
 		return
 	}
 
-	// No version or "latest" → return full resource with latest value (already preloaded)
 	if version == "" || version == "latest" {
 		if resource.Value != nil {
 			if err := decryptValue(resource.Value); err != nil {
@@ -442,7 +433,6 @@ func handleGetResource(db *gorm.DB, w http.ResponseWriter, r *http.Request, prin
 		return
 	}
 
-	// Try as UUID first, then fall back to version number
 	var rv *orm.ResourceValue
 	if _, uuidErr := uuid.Parse(version); uuidErr == nil {
 		rv, err = store.GetResourceValueByUUID(db, version)

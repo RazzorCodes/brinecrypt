@@ -40,7 +40,7 @@ func CreateResource(db *gorm.DB, r *orm.Resource) error {
 }
 
 func UpdateResourceType(db *gorm.DB, id uint, t orm.ResourceType) error {
-	return db.Model(&orm.Resource{}).Where("id = ?", id).Update("type", t).Error
+	return db.Model(&orm.Resource{}).Where("id = ?", id).Update("resource_type", t).Error
 }
 
 func DeleteResource(db *gorm.DB, namespace string, name string) error {

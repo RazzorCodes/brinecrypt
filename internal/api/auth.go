@@ -129,29 +129,29 @@ func AnonToken(db *gorm.DB) http.HandlerFunc {
 		ttl := anonTokenTTL()
 		exp := time.Now().Add(ttl)
 
-		ct := &orm.CapabilityToken{
-			IssuedBy:  nil,
-			TokenHash: auth.HashToken(token),
-			ExpiresAt: &exp,
-		}
-		if err := store.CreateCapabilityToken(db, ct); err != nil {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			ct := &orm.CapabilityToken{
+				IssuedBy:  nil,
+				TokenHash: auth.HashToken(token),
+				ExpiresAt: &exp,
+			}
+			if err := store.CreateCapabilityToken(tx, ct); err != nil {
+				return err
+			}
+			for _, ap := range anonPerms {
+				p := orm.NewPermission(ap.ResourcePattern, ap.Verb, ap.ExpiresAt)
+				if err := store.CreatePermission(tx, &p); err != nil {
+					return err
+				}
+				if err := store.AddPermissionToCapabilityToken(tx, ct.Id, p.Id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			logger.Error("create anon capability token: " + err.Error())
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
-		}
-
-		for _, ap := range anonPerms {
-			p := orm.NewPermission(ap.ResourcePattern, ap.Verb, ap.ExpiresAt)
-			if err := store.CreatePermission(db, &p); err != nil {
-				logger.Error("create anon permission: " + err.Error())
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if err := store.AddPermissionToCapabilityToken(db, ct.Id, p.Id); err != nil {
-				logger.Error("link anon permission: " + err.Error())
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
 		}
 
 		WriteAudit(db, r, "anon", orm.ActionAuthAnon, "anon", orm.AuditStatusOK)

@@ -37,7 +37,10 @@ func TestMatchesPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_vs_"+tt.resource, func(t *testing.T) {
-			got := matchesPattern(tt.resource, tt.pattern)
+			got, err := matchesPattern(tt.resource, tt.pattern)
+			if err != nil {
+				t.Fatalf("matchesPattern(%q, %q) unexpected error: %v", tt.resource, tt.pattern, err)
+			}
 			if got != tt.want {
 				t.Errorf("matchesPattern(%q, %q) = %v, want %v", tt.resource, tt.pattern, got, tt.want)
 			}

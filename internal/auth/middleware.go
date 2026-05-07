@@ -39,13 +39,11 @@ const (
 )
 
 func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
-	// fully public — no token resolution attempted
 	public := map[string]bool{
 		"/auth/login": true,
 		"/auth/anon":  true,
 		"/admin/anon": true,
 	}
-	// optional auth — resolve token if present, pass through as anonymous if not
 	optionalAuth := map[string]bool{
 		"/api/v1/namespace": true,
 		"/api/v1/resource":  true,
@@ -65,12 +63,14 @@ func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
 		}
 
 		if optionalAuth[r.URL.Path] {
-			// Resolve token if present; silently fall through as unauthenticated if not
 			if raw != "" {
-				if ctx, ok := resolveToken(r, db, raw); ok {
-					next.ServeHTTP(w, r.WithContext(ctx))
+				ctx, ok := resolveToken(r, db, raw)
+				if !ok {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
 					return
 				}
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
 			}
 			next.ServeHTTP(w, r)
 			return
@@ -90,7 +90,6 @@ func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
 	})
 }
 
-// resolveToken attempts to resolve the bearer token and returns an enriched context.
 func resolveToken(r *http.Request, db *gorm.DB, raw string) (context.Context, bool) {
 	switch {
 	case strings.HasPrefix(raw, SessionPrefix):

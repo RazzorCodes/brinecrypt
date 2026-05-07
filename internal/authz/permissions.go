@@ -25,7 +25,11 @@ func Check(db *gorm.DB, principal *Principal, verb orm.Verb, namespace string, n
 		if p.Verb != verb {
 			continue
 		}
-		if matchesPattern(resource, p.ResourcePattern) {
+		matched, err := matchesPattern(resource, p.ResourcePattern)
+		if err != nil {
+			return false, err
+		}
+		if matched {
 			return true, nil
 		}
 	}
@@ -108,7 +112,11 @@ func checkAnon(db *gorm.DB, verb orm.Verb, namespace, name string) (bool, error)
 		if p.Verb != verb {
 			continue
 		}
-		if matchesPattern(resource, p.ResourcePattern) {
+		matched, err := matchesPattern(resource, p.ResourcePattern)
+		if err != nil {
+			return false, err
+		}
+		if matched {
 			return true, nil
 		}
 	}
@@ -154,15 +162,21 @@ func NamespacesForPrincipalWithAnon(db *gorm.DB, principal *Principal) (map[stri
 	return result, nil
 }
 
-func matchesPattern(resource string, pattern string) bool {
+func matchesPattern(resource string, pattern string) (bool, error) {
 	if pattern == "*/*" {
-		return true
+		return true, nil
 	}
 	pParts := splitSlash(pattern)
 	rParts := splitSlash(resource)
-	nsMatch, _ := path.Match(pParts[0], rParts[0])
-	resMatch, _ := path.Match(pParts[1], rParts[1])
-	return nsMatch && resMatch
+	nsMatch, err := path.Match(pParts[0], rParts[0])
+	if err != nil {
+		return false, err
+	}
+	resMatch, err := path.Match(pParts[1], rParts[1])
+	if err != nil {
+		return false, err
+	}
+	return nsMatch && resMatch, nil
 }
 
 func splitSlash(s string) [2]string {

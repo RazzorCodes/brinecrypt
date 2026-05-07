@@ -45,11 +45,15 @@ func CountResourceVersions(db *gorm.DB, resourceID uint) (int64, error) {
 }
 
 func CreateResourceValue(db *gorm.DB, rv *orm.ResourceValue) error {
-	var max uint
-	db.Model(&orm.ResourceValue{}).
-		Where("resource_id = ?", rv.ResourceId).
-		Select("COALESCE(MAX(version), 0)").
-		Scan(&max)
-	rv.Version = max + 1
-	return db.Create(rv).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		var max uint
+		if err := tx.Model(&orm.ResourceValue{}).
+			Where("resource_id = ?", rv.ResourceId).
+			Select("COALESCE(MAX(version), 0)").
+			Scan(&max).Error; err != nil {
+			return err
+		}
+		rv.Version = max + 1
+		return tx.Create(rv).Error
+	})
 }
