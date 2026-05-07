@@ -39,6 +39,11 @@ jobs:
       - name: Integration tests
         run: echo "TODO"
 
+      - uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint ./helm
+
       - name: Stamp SHA to brinecrypt
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
