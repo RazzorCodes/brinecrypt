@@ -35,6 +35,15 @@ jobs:
           docker tag  $REG/brinecrypt:${{ env.RELEASE_SHA }} $REG/brinecrypt:${{ github.ref_name }}
           docker push $REG/brinecrypt:${{ github.ref_name }}
 
+      - name: Push to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          REG=zot.kube-ex.svc.cluster.local:5000
+          docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/${{ github.repository_owner }}/brinecrypt:${{ github.ref_name }}
+          docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/${{ github.repository_owner }}/brinecrypt:latest
+          docker push ghcr.io/${{ github.repository_owner }}/brinecrypt:${{ github.ref_name }}
+          docker push ghcr.io/${{ github.repository_owner }}/brinecrypt:latest
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
