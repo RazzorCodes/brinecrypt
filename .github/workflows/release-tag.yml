@@ -1,0 +1,45 @@
+name: Release Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: self-hosted
+    environment: production
+    # ↑ blocks here until a required reviewer approves in GitHub UI.
+    # Set up: repo Settings → Environments → production → Required reviewers.
+
+    steps:
+      - name: Fetch SHA from brinecrypt
+        run: |
+          TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+          VERSION=${GITHUB_REF_NAME#v}
+          SHA=$(curl -sf -X POST "http://brinecrypt.kube-ex.svc/api/v1/resource?op=query" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"namespace\":\"ci\",\"name\":\"release/$VERSION\"}" \
+            | jq -r '.value.data')
+          if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
+            echo "No stamped SHA for release/$VERSION — branch pipeline must pass first."
+            exit 1
+          fi
+          echo "RELEASE_SHA=$SHA" >> $GITHUB_ENV
+
+      - name: Retag image
+        run: |
+          skopeo copy \
+            --src-tls-verify=false \
+            --dest-tls-verify=false \
+            docker://zot.lan/brinecrypt:${{ env.RELEASE_SHA }} \
+            docker://zot.lan/brinecrypt:${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

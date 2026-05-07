@@ -1,0 +1,49 @@
+name: Release Branch
+
+on:
+  push:
+    branches:
+      - 'release/**'
+
+jobs:
+  build-and-test:
+    runs-on: arc-runner-set
+
+    # Runner pod must use a k8s SA registered in brinecrypt with write on ci/*.
+    # Configure serviceAccountName in your ARC RunnerDeployment spec.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push image
+        uses: docker://gcr.io/kaniko-project/executor:latest
+        with:
+          args: >-
+            --dockerfile=Dockerfile.prod
+            --destination=zot.lan/brinecrypt:${{ github.sha }}
+            --insecure
+            --cache=true
+            --cache-repo=zot.lan/cache/brinecrypt
+            --insecure-pull
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Smoke tests
+        run: echo "TODO"
+
+      - name: Integration tests
+        run: echo "TODO"
+
+      - name: Stamp SHA to brinecrypt
+        run: |
+          TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+          VERSION=${GITHUB_REF_NAME#release/}
+          curl -sf -X PUT http://brinecrypt.kube-ex.svc/api/v1/resource \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"namespace\":\"ci\",\"name\":\"release/$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
