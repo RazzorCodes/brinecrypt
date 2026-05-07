@@ -7,10 +7,7 @@ on:
 
 jobs:
   release:
-    runs-on: self-hosted
-    environment: production
-    # ↑ blocks here until a required reviewer approves in GitHub UI.
-    # Set up: repo Settings → Environments → production → Required reviewers.
+    runs-on: arc-runner-set
 
     steps:
       - name: Fetch SHA from brinecrypt
@@ -28,13 +25,15 @@ jobs:
           fi
           echo "RELEASE_SHA=$SHA" >> $GITHUB_ENV
 
+      - name: Wait for Docker
+        run: until docker info >/dev/null 2>&1; do sleep 1; done
+
       - name: Retag image
         run: |
-          skopeo copy \
-            --src-tls-verify=false \
-            --dest-tls-verify=false \
-            docker://zot.lan/brinecrypt:${{ env.RELEASE_SHA }} \
-            docker://zot.lan/brinecrypt:${{ github.ref_name }}
+          REG=zot.kube-ex.svc.cluster.local:5000
+          docker pull $REG/brinecrypt:${{ env.RELEASE_SHA }}
+          docker tag  $REG/brinecrypt:${{ env.RELEASE_SHA }} $REG/brinecrypt:${{ github.ref_name }}
+          docker push $REG/brinecrypt:${{ github.ref_name }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
