@@ -13,6 +13,8 @@ jobs:
       packages: write
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Fetch SHA from brinecrypt
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
@@ -47,6 +49,16 @@ jobs:
           docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:latest
           docker push ghcr.io/$OWNER/brinecrypt:${{ github.ref_name }}
           docker push ghcr.io/$OWNER/brinecrypt:latest
+
+      - uses: azure/setup-helm@v4
+
+      - name: Package and push chart to GHCR
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm package ./helm --version $VERSION --app-version $VERSION
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          helm push brinecrypt-$VERSION.tgz oci://ghcr.io/$OWNER/charts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
