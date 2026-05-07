@@ -16,15 +16,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and push image
-        uses: docker://gcr.io/kaniko-project/executor:latest
-        with:
-          args: >-
-            --dockerfile=Dockerfile.prod
-            --destination=zot.lan/brinecrypt:${{ github.sha }}
-            --insecure
-            --cache=true
-            --cache-repo=zot.lan/cache/brinecrypt
-            --insecure-pull
+        run: |
+          docker buildx build \
+            -f Dockerfile.prod \
+            -t zot.lan/brinecrypt:${{ github.sha }} \
+            --push \
+            .
 
       - uses: actions/setup-go@v5
         with:
