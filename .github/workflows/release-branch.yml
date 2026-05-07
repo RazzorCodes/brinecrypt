@@ -23,6 +23,7 @@ jobs:
           docker buildx build \
             -f Dockerfile.prod \
             -t zot.kube-ex.svc.cluster.local:5000/brinecrypt:${{ github.sha }} \
+            --provenance=false \
             --push \
             .
 
