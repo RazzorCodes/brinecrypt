@@ -43,7 +43,7 @@ jobs:
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
           VERSION=${GITHUB_REF_NAME#release/}
-          curl -sf --fail-with-body -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
+          curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"namespace\":\"ci\",\"name\":\"release-$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
