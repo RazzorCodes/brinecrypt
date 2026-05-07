@@ -39,16 +39,18 @@ const (
 )
 
 func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
+	// fully public — no token resolution attempted
 	public := map[string]bool{
 		"/auth/login": true,
 		"/auth/anon":  true,
+		"/admin/anon": true,
+	}
+	// optional auth — resolve token if present, pass through as anonymous if not
+	optionalAuth := map[string]bool{
+		"/api/v1/namespace": true,
+		"/api/v1/resource":  true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v1/_") {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-
 		if public[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
@@ -56,60 +58,77 @@ func AuthMiddleware(db *gorm.DB, next http.Handler) http.Handler {
 
 		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
-		if r.Method == "POST" && r.URL.Path == "/admin/users" && k8s.IsBootstrapToken(raw) {
+		if r.Method == "POST" && r.URL.Path == "/admin/user" && k8s.IsBootstrapToken(raw) {
 			ctx := context.WithValue(r.Context(), BootstrapContextKey, true)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
+
+		if optionalAuth[r.URL.Path] {
+			// Resolve token if present; silently fall through as unauthenticated if not
+			if raw != "" {
+				if ctx, ok := resolveToken(r, db, raw); ok {
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if raw == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		switch {
-		case strings.HasPrefix(raw, SessionPrefix):
-			user, err := resolveSession(db, raw)
-			if err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), UserContextKey, user)
-			ctx = context.WithValue(ctx, AuthMethodContextKey, AuthMethodSession)
-			next.ServeHTTP(w, r.WithContext(ctx))
-
-		case strings.HasPrefix(raw, PATPrefix):
-			user, err := resolvePAT(db, raw)
-			if err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), UserContextKey, user)
-			ctx = context.WithValue(ctx, AuthMethodContextKey, AuthMethodPAT)
-			next.ServeHTTP(w, r.WithContext(ctx))
-
-		case strings.HasPrefix(raw, CapabilityPrefix):
-			ct, err := resolveCapabilityToken(db, raw)
-			if err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), TokenContextKey, ct)
-			next.ServeHTTP(w, r.WithContext(ctx))
-
-		case looksLikeJWT(raw):
-			sa, err := resolveSAJWT(r.Context(), db, raw)
-			if err != nil {
-				logger.Warn("SA JWT validation failed: " + err.Error())
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), SAContextKey, sa)
-			next.ServeHTTP(w, r.WithContext(ctx))
-
-		default:
+		ctx, ok := resolveToken(r, db, raw)
+		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// resolveToken attempts to resolve the bearer token and returns an enriched context.
+func resolveToken(r *http.Request, db *gorm.DB, raw string) (context.Context, bool) {
+	switch {
+	case strings.HasPrefix(raw, SessionPrefix):
+		user, err := resolveSession(db, raw)
+		if err != nil {
+			return nil, false
+		}
+		ctx := context.WithValue(r.Context(), UserContextKey, user)
+		ctx = context.WithValue(ctx, AuthMethodContextKey, AuthMethodSession)
+		return ctx, true
+
+	case strings.HasPrefix(raw, PATPrefix):
+		user, err := resolvePAT(db, raw)
+		if err != nil {
+			return nil, false
+		}
+		ctx := context.WithValue(r.Context(), UserContextKey, user)
+		ctx = context.WithValue(ctx, AuthMethodContextKey, AuthMethodPAT)
+		return ctx, true
+
+	case strings.HasPrefix(raw, CapabilityPrefix):
+		ct, err := resolveCapabilityToken(db, raw)
+		if err != nil {
+			return nil, false
+		}
+		return context.WithValue(r.Context(), TokenContextKey, ct), true
+
+	case looksLikeJWT(raw):
+		sa, err := resolveSAJWT(r.Context(), db, raw)
+		if err != nil {
+			logger.Warn("SA JWT validation failed: " + err.Error())
+			return nil, false
+		}
+		return context.WithValue(r.Context(), SAContextKey, sa), true
+
+	default:
+		return nil, false
+	}
 }
 
 func looksLikeJWT(s string) bool {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -84,6 +85,7 @@ func CreateUser(db *gorm.DB) http.HandlerFunc {
 			}{
 				{metaUsersResource, []orm.Verb{orm.VerbTypeList, orm.VerbTypeRead, orm.VerbTypeWrite, orm.VerbTypeDelete}},
 				{metaSAResource, []orm.Verb{orm.VerbTypeList, orm.VerbTypeRead}},
+				{metaNSResource, []orm.Verb{orm.VerbTypeList, orm.VerbTypeRead, orm.VerbTypeWrite, orm.VerbTypeDelete}},
 			}
 			for _, grant := range bootstrapGrants {
 				for _, verb := range grant.verbs {
@@ -113,44 +115,155 @@ type permissionsRequestBody struct {
 	Permissions []permissionEntry `json:"permissions"`
 }
 
-func ListUsers(db *gorm.DB) http.HandlerFunc {
+type queryEntry struct {
+	Username  string `json:"username,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	SA        string `json:"sa,omitempty"`
+	CapToken  *uint  `json:"cap_token,omitempty"`
+	PAT       *uint  `json:"pat,omitempty"`
+}
+
+type queryResult struct {
+	Permissions []orm.Permission `json:"permissions"`
+	ExpiresAt   *time.Time       `json:"expires_at,omitempty"`
+}
+
+type userSummary struct {
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type patInfo struct {
+	Id         uint       `json:"id"`
+	Expiry     *time.Time `json:"expiry,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+type patQueryResult struct {
+	PAT         patInfo          `json:"pat"`
+	User        userSummary      `json:"user"`
+	Permissions []orm.Permission `json:"permissions"`
+}
+
+func AdminUser(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !requireMetaUser(db, r, orm.VerbTypeList) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
+		op := r.URL.Query().Get("op")
+		switch op {
+		case "":
+			user, ok := r.Context().Value(auth.UserContextKey).(*orm.User)
+			if !ok {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			perms, _ := store.GetPermissionsForUser(db, user.Id)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(userResponse{Name: user.Name, Email: user.Email, CreatedAt: user.CreatedAt, Permissions: perms})
+
+		case "list":
+			if !requireMetaUser(db, r, orm.VerbTypeList) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			users, err := store.ListUsers(db)
+			if err != nil {
+				logger.Error("list users: " + err.Error())
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			resp := make([]string, 0, len(users))
+			for _, u := range users {
+				resp = append(resp, u.Name)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+
+		case "query":
+			if !requireMetaUser(db, r, orm.VerbTypeRead) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			var body struct {
+				Query []queryEntry `json:"query"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Query) == 0 {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			results := make(map[string]any, len(body.Query))
+			for _, entry := range body.Query {
+				switch {
+				case entry.Username != "":
+					u, err := store.GetUser(db, entry.Username)
+					if err != nil {
+						http.Error(w, "not found: user/"+entry.Username, http.StatusNotFound)
+						return
+					}
+					perms, _ := store.GetPermissionsForUser(db, u.Id)
+					results["user/"+entry.Username] = queryResult{Permissions: perms}
+
+				case entry.SA != "" && entry.Namespace != "":
+					sa, err := store.GetSA(db, entry.Namespace, entry.SA)
+					if err != nil {
+						http.Error(w, "not found: sa/"+entry.Namespace+"/"+entry.SA, http.StatusNotFound)
+						return
+					}
+					perms, _ := store.GetPermissionsForSA(db, sa.Id)
+					results["sa/"+entry.Namespace+"/"+entry.SA] = queryResult{Permissions: perms}
+
+				case entry.CapToken != nil:
+					ct, err := store.GetCapabilityTokenByID(db, *entry.CapToken)
+					if err != nil {
+						http.Error(w, "not found: cap_token", http.StatusNotFound)
+						return
+					}
+					perms, _ := store.GetPermissionsForCapabilityToken(db, ct.Id)
+					results[fmt.Sprintf("cap_token/%d", ct.Id)] = queryResult{Permissions: perms, ExpiresAt: ct.ExpiresAt}
+
+				case entry.PAT != nil:
+					pat, err := store.GetPATByID(db, *entry.PAT)
+					if err != nil {
+						http.Error(w, "not found: pat", http.StatusNotFound)
+						return
+					}
+					u, err := store.GetUserById(db, pat.UserId)
+					if err != nil {
+						logger.Error("get pat owner: " + err.Error())
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
+					perms, _ := store.GetPermissionsForUser(db, u.Id)
+					results[fmt.Sprintf("pat/%d", pat.Id)] = patQueryResult{
+						PAT:         patInfo{Id: pat.Id, Expiry: pat.Expiry, CreatedAt: pat.CreatedAt, LastUsedAt: pat.LastUsedAt},
+						User:        userSummary{Name: u.Name, Email: u.Email, CreatedAt: u.CreatedAt},
+						Permissions: perms,
+					}
+
+				default:
+					http.Error(w, "bad request: unrecognized query entry", http.StatusBadRequest)
+					return
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"results": results})
+
+		default:
+			http.Error(w, "bad request: unknown op", http.StatusBadRequest)
 		}
-		users, err := store.ListUsers(db)
-		if err != nil {
-			logger.Error("list users: " + err.Error())
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		resp := make([]string, 0, len(users))
-		for _, u := range users {
-			resp = append(resp, u.Name)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
 	}
 }
 
-func GetUserByName(db *gorm.DB) http.HandlerFunc {
+func GetAnonInfo(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		self, isSelf := r.Context().Value(auth.UserContextKey).(*orm.User)
-		isSelf = isSelf && self.Name == name
-		if !isSelf && !requireMetaUser(db, r, orm.VerbTypeRead) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		u, err := store.GetUser(db, name)
+		perms, err := store.ListAnonPermissions(db)
 		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
+			logger.Error("get anon info: " + err.Error())
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		perms, _ := store.GetPermissionsForUser(db, u.Id)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userResponse{Name: u.Name, Email: u.Email, CreatedAt: u.CreatedAt, Permissions: perms})
+		json.NewEncoder(w).Encode(perms)
 	}
 }
 

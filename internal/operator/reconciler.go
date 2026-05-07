@@ -175,12 +175,22 @@ func parseRefreshInterval(in string) (time.Duration, error) {
 
 func (r *BrinecryptSecretReconciler) fetchRemoteSecretValue(ctx context.Context, remotePath, jwt string) (string, error) {
 	base := strings.TrimRight(r.BrinecryptURL, "/")
-	url := fmt.Sprintf("%s/api/v1/%s", base, remotePath)
+	url := fmt.Sprintf("%s/api/v1/resource?op=query", base)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	parts := strings.SplitN(remotePath, "/", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("remotePath must be namespace/name, got %q", remotePath)
+	}
+	bodyBytes, err := json.Marshal(map[string]string{"namespace": parts[0], "name": parts[1]})
+	if err != nil {
+		return "", fmt.Errorf("marshal request body failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(bodyBytes)))
 	if err != nil {
 		return "", fmt.Errorf("build brinecrypt request failed: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+jwt)
 
 	resp, err := r.HTTPClient.Do(req)

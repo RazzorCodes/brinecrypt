@@ -86,6 +86,74 @@ func NamespacesForPrincipal(db *gorm.DB, principal *Principal) (map[string][]orm
 	return result, nil
 }
 
+// CheckWithAnon checks principal's own permissions, then falls through to the
+// anonymous permission set. principal may be nil (unauthenticated request).
+func CheckWithAnon(db *gorm.DB, principal *Principal, verb orm.Verb, namespace, name string) (bool, error) {
+	if principal != nil {
+		ok, err := Check(db, principal, verb, namespace, name)
+		if err != nil || ok {
+			return ok, err
+		}
+	}
+	return checkAnon(db, verb, namespace, name)
+}
+
+func checkAnon(db *gorm.DB, verb orm.Verb, namespace, name string) (bool, error) {
+	perms, err := store.ListAnonPermissions(db)
+	if err != nil {
+		return false, err
+	}
+	resource := namespace + "/" + name
+	for _, p := range perms {
+		if p.Verb != verb {
+			continue
+		}
+		if matchesPattern(resource, p.ResourcePattern) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// NamespacesForPrincipalWithAnon returns the union of the principal's namespaces
+// and namespaces covered by anon permissions. principal may be nil.
+func NamespacesForPrincipalWithAnon(db *gorm.DB, principal *Principal) (map[string][]orm.Verb, error) {
+	result := make(map[string][]orm.Verb)
+
+	if principal != nil {
+		own, err := NamespacesForPrincipal(db, principal)
+		if err != nil {
+			return nil, err
+		}
+		for ns, verbs := range own {
+			result[ns] = verbs
+		}
+	}
+
+	anonPerms, err := store.ListAnonPermissions(db)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range anonPerms {
+		ns := splitSlash(p.ResourcePattern)[0]
+		if ns == "*" || ns == "_" || strings.ContainsAny(ns, "*?[") {
+			continue
+		}
+		verbs := result[ns]
+		duplicate := false
+		for _, v := range verbs {
+			if v == p.Verb {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result[ns] = append(result[ns], p.Verb)
+		}
+	}
+	return result, nil
+}
+
 func matchesPattern(resource string, pattern string) bool {
 	if pattern == "*/*" {
 		return true

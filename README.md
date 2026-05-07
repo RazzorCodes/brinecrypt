@@ -12,6 +12,7 @@ Brinecrypt is a secure resource management and encryption service designed to pr
   - Personal Access Tokens (PATs) for programmatic access.
   - Capability Tokens for restricted, delegated access.
   - Kubernetes Service Account integration.
+  - Anonymous Tokens for unauthenticated read-only access to public resources.
 - **Audit Log:** Every mutating operation and auth event is recorded with actor, action, resource, status, and remote address. Queryable via `GET /admin/audit`.
 - **Developer Friendly:** High-performance incremental builds with Docker and live-reloading via Air.
 
@@ -69,9 +70,35 @@ The API is fully documented using OpenAPI 3.0. You can find the specification in
 
 - **Login:** `POST /auth/login`
 - **Issue PAT:** `POST /api/v1/tokens/pat`
-- **Store Resource:** `PUT /api/v1/{namespace}/{name}`
-- **Retrieve Resource:** `GET /api/v1/{namespace}/{name}`
+- **List namespaces:** `GET /api/v1/namespace?op=list`
+- **List resources in namespace:** `POST /api/v1/namespace?op=query` — body: `{"namespace":"<ns>"}`
+- **Store resource:** `PUT /api/v1/resource` — body: `{"namespace":"<ns>","name":"<name>","type":"cleartext|encrypted","value":"<data>"}`
+- **Retrieve resource:** `POST /api/v1/resource?op=query` — body: `{"namespace":"<ns>","name":"<name>"}` (add `"version":"<n|uuid|latest>"` for a specific version)
+- **List versions:** `POST /api/v1/resource?op=versions` — body: `{"namespace":"<ns>","name":"<name>"}`
+- **Delete resource:** `DELETE /api/v1/resource` — body: `{"namespace":"<ns>","name":"<name>"}`
 - **Query Audit Log:** `GET /admin/audit` (params: `actor`, `action`, `resource`, `status`, `since`, `until`, `limit`)
+
+Anonymous permissions are additive: every principal (including unauthenticated callers) transparently gains access to resources covered by the anon permission set without explicit grants on their account.
+
+### User & Permission Management
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /admin/user` | Session or PAT | Returns the calling user's own permissions (self-info). Cap tokens and SAs are not supported. |
+| `GET /admin/user?op=list` | Session + `_/users` list | Lists all user names. |
+| `GET /admin/user?op=query` | Session + `_/users` read | Returns permissions for queried principals. Body: `{"query": [{"username":"<name>"}, {"namespace":"<ns>","sa":"<name>"}, {"cap_token":<id>}]}` |
+| `POST /admin/user` | Session + `_/users` write | Creates a new user. |
+| `DELETE /admin/user/{name}` | Session + `_/users` delete | Deletes a user. |
+
+### Anonymous Access
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /admin/anon` | None (public) | Lists the anonymous permission set — what any caller of `/auth/anon` will receive. Not secret. |
+| `POST /auth/anon` | None | Issues a short-lived capability token scoped to the anonymous permissions. |
+| `GET /admin/anon/permissions` | Session + `_/users` list | Admin view of the anonymous permission template. |
+| `POST /admin/anon/permissions` | Session + `_/users` write | Adds patterns to the anonymous permission set. |
+| `DELETE /admin/anon/permissions/{id}` | Session + `_/users` write | Removes a pattern from the anonymous permission set. |
 
 ## Security Model
 

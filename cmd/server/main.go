@@ -44,10 +44,10 @@ func main() {
 	inner.HandleFunc("DELETE /api/v1/tokens/capability/{id}", api.RevokeCapabilityToken(db))
 
 	// admin
-	inner.HandleFunc("GET /admin/users", api.ListUsers(db))
-	inner.HandleFunc("POST /admin/users", api.CreateUser(db))
-	inner.HandleFunc("GET /admin/users/{name}", api.GetUserByName(db))
-	inner.HandleFunc("DELETE /admin/users/{name}", api.DeleteUserByName(db))
+	inner.HandleFunc("GET /admin/user", api.AdminUser(db))
+	inner.HandleFunc("POST /admin/user", api.CreateUser(db))
+	inner.HandleFunc("DELETE /admin/user/{name}", api.DeleteUserByName(db))
+	inner.HandleFunc("GET /admin/anon", api.GetAnonInfo(db))
 	inner.HandleFunc("POST /admin/permissions", api.GrantPermissions(db))
 	inner.HandleFunc("DELETE /admin/permissions", api.RevokePermissions(db))
 	inner.HandleFunc("GET /admin/audit", api.GetAuditLog(db))
@@ -57,14 +57,11 @@ func main() {
 	inner.HandleFunc("DELETE /admin/anon/permissions/{id}", api.DeleteAnonPermission(db))
 
 	// resource
-	inner.HandleFunc("GET /api/v1/namespaces", api.ListNamespaces(db))
-	inner.HandleFunc("GET /api/v1/{namespace}", api.ListResourcesInNamespace(db))
-	inner.HandleFunc("GET /api/v1/{namespace}/{name}", api.GetResource(db))
-	inner.HandleFunc("PUT /api/v1/{namespace}/{name}", api.PutResource(db))
-	inner.HandleFunc("DELETE /api/v1/{namespace}/{name}", api.DeleteResource(db))
-	inner.HandleFunc("GET /api/v1/{namespace}/{name}/versions", api.ListResourceVersions(db))
-	inner.HandleFunc("GET /api/v1/{namespace}/{name}/{version}", api.GetResourceByVersion(db))
-	inner.HandleFunc("GET /api/v1/uuid/{uuid}", api.GetResourceValue(db))
+	inner.HandleFunc("GET /api/v1/namespace", api.NamespaceHandler(db))
+	inner.HandleFunc("POST /api/v1/namespace", api.NamespaceHandler(db))
+	inner.HandleFunc("POST /api/v1/resource", api.ResourceHandler(db))
+	inner.HandleFunc("PUT /api/v1/resource", api.ResourceHandler(db))
+	inner.HandleFunc("DELETE /api/v1/resource", api.ResourceHandler(db))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
