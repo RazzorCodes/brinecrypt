@@ -20,12 +20,11 @@ jobs:
 
       - name: Build and push image
         run: |
-          docker buildx build \
+          DOCKER_BUILDKIT=1 docker build \
             -f Dockerfile.prod \
             -t zot.kube-ex.svc.cluster.local:5000/brinecrypt:${{ github.sha }} \
-            --provenance=false \
-            --push \
             .
+          docker push zot.kube-ex.svc.cluster.local:5000/brinecrypt:${{ github.sha }}
 
       - uses: actions/setup-go@v5
         with:
