@@ -44,7 +44,7 @@ jobs:
 
       - name: Push to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GH_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           REG=zot.kube-ex.svc.cluster.local:5000
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:${{ github.ref_name }}
@@ -62,7 +62,7 @@ jobs:
           BASE_VERSION=${VERSION%-*}
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm package ./helm --version $VERSION --app-version $VERSION
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GH_PAT }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
           helm push brinecrypt-$VERSION.tgz oci://ghcr.io/$OWNER/charts
 
       - name: Create GitHub Release
@@ -71,7 +71,7 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: CHANGELOG.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Stamp latest to brinecrypt
         run: |
