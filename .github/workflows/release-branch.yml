@@ -8,6 +8,8 @@ on:
 jobs:
   build-and-test:
     runs-on: arc-runner-set
+    permissions:
+      contents: write
 
     # Runner pod must use a k8s SA registered in brinecrypt with write on ci/*.
     # Configure serviceAccountName in your ARC RunnerDeployment spec.
@@ -51,4 +53,14 @@ jobs:
           curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"namespace\":\"ci\",\"name\":\"release-$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
+            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
+
+      - name: Tag as intest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/}
+          gh api repos/${{ github.repository }}/git/refs \
+            -X POST \
+            -f ref="refs/tags/v${VERSION}-intest" \
+            -f sha="${{ github.sha }}"
