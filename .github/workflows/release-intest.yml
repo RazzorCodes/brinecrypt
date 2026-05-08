@@ -42,7 +42,8 @@ jobs:
             --namespace homelab-sandbox --create-namespace \
             --set image.repository=zot.kube-ex.svc.cluster.local:5000/brinecrypt \
             --set image.tag=${{ env.RELEASE_SHA }} \
-            --set image.pullPolicy=IfNotPresent
+            --set image.pullPolicy=IfNotPresent \
+            --set database.url=postgres://user:pass@postgres.homelab-infra.svc.cluster.local:5432/brinecrypt_sandbox?sslmode=disable
           kubectl rollout status deployment -l app.kubernetes.io/instance=brinecrypt-sandbox \
             -n homelab-sandbox --timeout=120s
 
