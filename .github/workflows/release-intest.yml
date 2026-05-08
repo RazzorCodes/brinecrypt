@@ -1,0 +1,75 @@
+name: Release Integration Tests
+
+on:
+  push:
+    tags:
+      - 'v*-intest'
+
+jobs:
+  integration-test:
+    runs-on: arc-runner-set
+    permissions:
+      contents: write
+
+    # Runner pod must use a k8s SA with write on ci/* in brinecrypt and
+    # kubectl access to the homelab-sandbox namespace.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch brinekey token and verify CI stamp
+        run: |
+          TOKEN=$(cat /var/run/secrets/brinekey/token)
+          VERSION=${GITHUB_REF_NAME%-intest}
+          VERSION=${VERSION#v}
+          SHA=$(curl -sf -f -X POST "http://brinecrypt.kube-ex.svc:8080/api/v1/resource?op=query" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\"}" \
+            | jq -r '.value.data')
+          if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
+            echo "No stamped SHA for brinecrypt-release/$VERSION — branch pipeline must pass first."
+            exit 1
+          fi
+          echo "RELEASE_SHA=$SHA" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - uses: azure/setup-helm@v4
+
+      - name: Deploy homelab-sandbox test environment
+        run: |
+          helm upgrade --install brinecrypt-sandbox ./helm \
+            --namespace homelab-sandbox --create-namespace \
+            --set image.repository=zot.kube-ex.svc.cluster.local:5000/brinecrypt \
+            --set image.tag=${{ env.RELEASE_SHA }} \
+            --set image.pullPolicy=IfNotPresent
+          kubectl rollout status deployment -l app.kubernetes.io/instance=brinecrypt-sandbox \
+            -n homelab-sandbox --timeout=120s
+
+      - name: Run integration and e2e tests
+        run: |
+          # TODO: deploy and run test fleet against brinecrypt-sandbox
+          echo "TODO: integration and e2e tests"
+
+      - name: Tear down sandbox
+        if: always()
+        run: helm uninstall brinecrypt-sandbox --namespace homelab-sandbox --ignore-not-found
+
+      - name: Promote to RC
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/git/refs/tags/v${{ env.VERSION }}-intest -X DELETE
+          gh api repos/${{ github.repository }}/git/refs \
+            -X POST \
+            -f ref="refs/tags/v${{ env.VERSION }}-rc" \
+            -f sha="${{ env.RELEASE_SHA }}"
+
+      - name: Reset pipeline on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/git/refs/tags/v${{ env.VERSION }}-intest \
+            -X DELETE || true

@@ -1,0 +1,38 @@
+name: Release Stable
+
+on:
+  push:
+    tags:
+      - 'stable'
+
+jobs:
+  retag-stable:
+    runs-on: arc-runner-set
+    permissions:
+      packages: write
+
+    steps:
+      - name: Fetch stable version from brinecrypt
+        run: |
+          TOKEN=$(cat /var/run/secrets/brinekey/token)
+          VERSION=$(curl -sf -f -X POST "http://brinecrypt.kube-ex.svc:8080/api/v1/resource?op=query" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"namespace":"ci","name":"brinecrypt-stable"}' \
+            | jq -r '.value.data')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "No ci/brinecrypt-stable stamp found in brinecrypt."
+            exit 1
+          fi
+          echo "STABLE_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Wait for Docker
+        run: until docker info >/dev/null 2>&1; do sleep 1; done
+
+      - name: Retag GHCR image as stable
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker pull ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }}
+          docker tag  ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }} ghcr.io/$OWNER/brinecrypt:stable
+          docker push ghcr.io/$OWNER/brinecrypt:stable
