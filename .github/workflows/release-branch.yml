@@ -56,11 +56,11 @@ jobs:
             -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
 
       - name: Tag as intest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#release/}
-          gh api repos/${{ github.repository }}/git/refs \
-            -X POST \
-            -f ref="refs/tags/v${VERSION}-intest" \
-            -f sha="${{ github.sha }}"
+          curl -sf -f -X POST "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"refs/tags/v${VERSION}-intest\",\"sha\":\"${{ github.sha }}\"}"
