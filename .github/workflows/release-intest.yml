@@ -1,9 +1,14 @@
 name: Release Integration Tests
 
 on:
-  push:
-    tags:
-      - 'v*-intest'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test'
+        required: true
+      sha:
+        description: 'SHA to test'
+        required: true
 
 jobs:
   integration-test:
@@ -42,7 +47,8 @@ jobs:
             --namespace homelab-sandbox --create-namespace \
             --set image.repository=zot.kube-ex.svc.cluster.local:5000/brinecrypt \
             --set image.tag=${{ env.RELEASE_SHA }} \
-            --set image.pullPolicy=IfNotPresent
+            --set image.pullPolicy=IfNotPresent \
+            --set database.url=postgres://user:pass@postgres.homelab-infra.svc.cluster.local:5432/brinecrypt_sandbox?sslmode=disable
           kubectl rollout status deployment -l app.kubernetes.io/instance=brinecrypt-sandbox \
             -n homelab-sandbox --timeout=120s
 
@@ -59,12 +65,12 @@ jobs:
         if: success()
         run: |
           GH_API="https://api.github.com/repos/${{ github.repository }}"
-          curl -sf -f -X DELETE "$GH_API/git/refs/tags/v${{ env.VERSION }}-intest" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          curl -sf -X DELETE "$GH_API/git/refs/tags/v${{ env.VERSION }}-intest" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28"
           curl -sf -f -X POST "$GH_API/git/refs" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -H "Content-Type: application/json" \
@@ -75,6 +81,6 @@ jobs:
         run: |
           curl -sf -X DELETE \
             "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v${{ env.VERSION }}-intest" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" || true

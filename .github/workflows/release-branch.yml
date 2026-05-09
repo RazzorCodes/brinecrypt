@@ -1,9 +1,7 @@
 name: Release Branch
 
 on:
-  push:
-    branches:
-      - 'release/**'
+  workflow_dispatch:
 
 jobs:
   build-and-test:

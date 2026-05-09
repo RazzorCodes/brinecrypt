@@ -1,9 +1,7 @@
 name: Release Stable
 
 on:
-  push:
-    tags:
-      - 'stable'
+  workflow_dispatch:
 
 jobs:
   retag-stable:

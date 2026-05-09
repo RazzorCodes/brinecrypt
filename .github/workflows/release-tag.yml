@@ -1,9 +1,11 @@
 name: Release Tag
 
 on:
-  push:
-    tags:
-      - 'v[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.0.0)'
+        required: true
 
 jobs:
   release:
@@ -19,13 +21,14 @@ jobs:
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
           VERSION=${GITHUB_REF_NAME#v}
+          BASE_VERSION=${VERSION%-*}
           SHA=$(curl -sf -f -X POST "http://brinecrypt.kube-ex.svc:8080/api/v1/resource?op=query" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\"}" \
+            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$BASE_VERSION\"}" \
             | jq -r '.value.data')
           if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
-            echo "No stamped SHA for release/$VERSION — branch pipeline must pass first."
+            echo "No stamped SHA for brinecrypt-release/$BASE_VERSION — branch pipeline must pass first."
             exit 1
           fi
           echo "RELEASE_SHA=$SHA" >> $GITHUB_ENV
@@ -42,7 +45,7 @@ jobs:
 
       - name: Push to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GH_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           REG=zot.kube-ex.svc.cluster.local:5000
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:${{ github.ref_name }}
@@ -57,9 +60,10 @@ jobs:
       - name: Package and push chart to GHCR
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          BASE_VERSION=${VERSION%-*}
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm package ./helm --version $VERSION --app-version $VERSION
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GH_PAT }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
           helm push brinecrypt-$VERSION.tgz oci://ghcr.io/$OWNER/charts
 
       - name: Create GitHub Release
@@ -68,12 +72,13 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: CHANGELOG.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Stamp latest to brinecrypt
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
           VERSION=${GITHUB_REF_NAME#v}
+          BASE_VERSION=${VERSION%-*}
           curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
