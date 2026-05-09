@@ -1,9 +1,14 @@
 name: Release Integration Tests
 
 on:
-  push:
-    tags:
-      - 'v*-intest'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test'
+        required: true
+      sha:
+        description: 'SHA to test'
+        required: true
 
 jobs:
   integration-test:
