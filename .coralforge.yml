@@ -18,36 +18,21 @@ providers:
           key: github_token
 
 run_types:
-  build:
+  ci:
     default_provider: github_actions
     provider_target:
-      workflow: release-branch.yml
+      workflow: ci.yml
     trigger:
       mode: manual
     stages:
-      - name: build-and-test
+      - name: ci
         provider: github_actions
         target:
-          workflow: release-branch.yml
-          job: build-and-test
+          workflow: ci.yml
+          job: ci
         runner: arc-runner-set
 
-  intest:
-    default_provider: github_actions
-    provider_target:
-      workflow: release-intest.yml
-    trigger:
-      mode: manual
-    stages:
-      - name: integration-test
-        provider: github_actions
-        target:
-          workflow: release-intest.yml
-          job: integration-test
-        runner: arc-runner-set
-    depends_on: [build]
-
-  tag:
+  release:
     default_provider: github_actions
     provider_target:
       workflow: release-tag.yml
@@ -60,7 +45,7 @@ run_types:
           workflow: release-tag.yml
           job: release
         runner: arc-runner-set
-    depends_on: [intest]
+    depends_on: [ci]
 
   stable:
     default_provider: github_actions
@@ -69,10 +54,10 @@ run_types:
     trigger:
       mode: manual
     stages:
-      - name: retag-stable
+      - name: stable
         provider: github_actions
         target:
           workflow: release-stable.yml
-          job: retag-stable
+          job: stable
         runner: arc-runner-set
-    depends_on: [tag]
+    depends_on: [release]

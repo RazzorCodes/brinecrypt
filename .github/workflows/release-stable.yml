@@ -1,4 +1,4 @@
-name: Release Stable
+name: Stable
 
 on:
   push:
@@ -11,13 +11,16 @@ on:
         required: false
 
 jobs:
-  retag-stable:
+  stable:
     runs-on: arc-runner-set
     permissions:
+      contents: write
       packages: write
     # Workflow run status is the gate signal; trigger tags are orchestration inputs only.
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Resolve stable version context
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -54,6 +57,13 @@ jobs:
 
           echo "STABLE_VERSION=$STABLE_VERSION" >> "$GITHUB_ENV"
 
+      - name: Verify release tag exists
+        run: |
+          set -euo pipefail
+          curl -sf -f "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${STABLE_VERSION}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" >/dev/null
+
       - name: Wait for Docker
         run: until docker info >/dev/null 2>&1; do sleep 1; done
 
@@ -64,6 +74,33 @@ jobs:
           docker pull ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }}
           docker tag  ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }} ghcr.io/$OWNER/brinecrypt:stable
           docker push ghcr.io/$OWNER/brinecrypt:stable
+
+      - name: Move stable git tag to selected release
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags origin
+          STABLE_SHA=$(git rev-list -n 1 "v$STABLE_VERSION")
+          if [ -z "$STABLE_SHA" ]; then
+            echo "Unable to resolve commit for v$STABLE_VERSION."
+            exit 1
+          fi
+          git tag -f stable "$STABLE_SHA"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push --force origin refs/tags/stable
+          echo "STABLE_SHA=$STABLE_SHA" >> "$GITHUB_ENV"
+
+      - name: Create or update stable GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: stable
+          target_commitish: ${{ env.STABLE_SHA }}
+          name: stable
+          body: |
+            Stable currently points to v${{ env.STABLE_VERSION }}.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update stable pointer in brinecrypt
         run: |
