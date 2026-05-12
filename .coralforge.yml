@@ -7,7 +7,7 @@ repo:
 
 providers:
   github_actions:
-    kind: github_actions
+    kind: github-actions
     owner: RazzorCodes
     repo: brinecrypt
     auth:
