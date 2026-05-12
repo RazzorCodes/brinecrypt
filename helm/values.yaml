@@ -36,7 +36,8 @@ corsOrigins: []
 
 resources: {}
 podAnnotations: {}
-nodeSelector: {}
+nodeSelector:
+  kubernetes.io/arch: amd64
 tolerations: []
 affinity: {}
 

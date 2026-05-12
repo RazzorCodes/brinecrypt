@@ -1,7 +1,14 @@
 name: Release Branch
 
 on:
+  push:
+    tags:
+      - build-*
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (X.Y.Z); optional if ref already encodes it"
+        required: false
 
 jobs:
   build-and-test:
@@ -9,9 +16,46 @@ jobs:
 
     # Runner pod must use a k8s SA registered in brinecrypt with write on ci/*.
     # Configure serviceAccountName in your ARC RunnerDeployment spec.
+    # Workflow run status is the gate signal; trigger tags are orchestration inputs only.
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            case "$REF_NAME" in
+              build-*) VERSION="${REF_NAME#build-}" ;;
+              *)
+                echo "Expected build-X.Y.Z tag but got '$REF_NAME'."
+                exit 1
+                ;;
+            esac
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="${INPUT_VERSION:-}"
+            if [ -z "$VERSION" ]; then
+              VERSION="$REF_NAME"
+              VERSION="${VERSION#build-}"
+              VERSION="${VERSION#release/}"
+              VERSION="${VERSION#v}"
+            fi
+          else
+            echo "Unsupported event '$EVENT_NAME'."
+            exit 1
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version '$VERSION'. Expected strict X.Y.Z."
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Wait for Docker
         run: until docker info >/dev/null 2>&1; do sleep 1; done
@@ -45,9 +89,7 @@ jobs:
       - name: Stamp SHA to brinecrypt
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
-          VERSION=${GITHUB_REF_NAME#release/}
           curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\",\"type\":\"cleartext\",\"value\":\"${{ github.sha }}\"}"
-

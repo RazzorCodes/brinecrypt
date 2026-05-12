@@ -1,11 +1,14 @@
 name: Release Tag
 
 on:
+  push:
+    tags:
+      - release-*
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 1.0.0)'
-        required: true
+        description: "Version to release (X.Y.Z); optional if ref already encodes it"
+        required: false
 
 jobs:
   release:
@@ -13,22 +16,59 @@ jobs:
     permissions:
       contents: write
       packages: write
+    # Workflow run status is the gate signal; trigger tags are orchestration inputs only.
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            case "$REF_NAME" in
+              release-*) VERSION="${REF_NAME#release-}" ;;
+              *)
+                echo "Expected release-X.Y.Z tag but got '$REF_NAME'."
+                exit 1
+                ;;
+            esac
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="${INPUT_VERSION:-}"
+            if [ -z "$VERSION" ]; then
+              VERSION="$REF_NAME"
+              VERSION="${VERSION#release-}"
+              VERSION="${VERSION#release/}"
+              VERSION="${VERSION#v}"
+            fi
+          else
+            echo "Unsupported event '$EVENT_NAME'."
+            exit 1
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version '$VERSION'. Expected strict X.Y.Z."
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
+
       - name: Fetch SHA from brinecrypt
         run: |
+          set -euo pipefail
           TOKEN=$(cat /var/run/secrets/brinekey/token)
-          VERSION=${GITHUB_REF_NAME#v}
-          BASE_VERSION=${VERSION%-*}
           SHA=$(curl -sf -f -X POST "http://brinecrypt.kube-ex.svc:8080/api/v1/resource?op=query" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$BASE_VERSION\"}" \
+            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-release-$VERSION\"}" \
             | jq -r '.value.data')
           if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
-            echo "No stamped SHA for brinecrypt-release/$BASE_VERSION — branch pipeline must pass first."
+            echo "No stamped SHA for brinecrypt-release/$VERSION — branch pipeline must pass first."
             exit 1
           fi
           echo "RELEASE_SHA=$SHA" >> $GITHUB_ENV
@@ -40,18 +80,18 @@ jobs:
         run: |
           REG=zot.kube-ex.svc.cluster.local:5000
           docker pull $REG/brinecrypt:${{ env.RELEASE_SHA }}
-          docker tag  $REG/brinecrypt:${{ env.RELEASE_SHA }} $REG/brinecrypt:${{ github.ref_name }}
-          docker push $REG/brinecrypt:${{ github.ref_name }}
+          docker tag  $REG/brinecrypt:${{ env.RELEASE_SHA }} $REG/brinecrypt:${{ env.RELEASE_TAG }}
+          docker push $REG/brinecrypt:${{ env.RELEASE_TAG }}
 
       - name: Push to GHCR
         run: |
-          echo "${{ secrets.GH_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           REG=zot.kube-ex.svc.cluster.local:5000
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:${{ github.ref_name }}
+          docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:${{ env.RELEASE_TAG }}
           docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:${{ env.RELEASE_SHA }}
           docker tag $REG/brinecrypt:${{ env.RELEASE_SHA }} ghcr.io/$OWNER/brinecrypt:latest
-          docker push ghcr.io/$OWNER/brinecrypt:${{ github.ref_name }}
+          docker push ghcr.io/$OWNER/brinecrypt:${{ env.RELEASE_TAG }}
           docker push ghcr.io/$OWNER/brinecrypt:${{ env.RELEASE_SHA }}
           docker push ghcr.io/$OWNER/brinecrypt:latest
 
@@ -59,26 +99,33 @@ jobs:
 
       - name: Package and push chart to GHCR
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          BASE_VERSION=${VERSION%-*}
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          helm package ./helm --version $VERSION --app-version $VERSION
-          echo "${{ secrets.GH_PAT }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-          helm push brinecrypt-$VERSION.tgz oci://ghcr.io/$OWNER/charts
+          helm package ./helm --version $RELEASE_TAG --app-version $RELEASE_TAG
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          helm push brinecrypt-$RELEASE_TAG.tgz oci://ghcr.io/$OWNER/charts
+
+      - name: Ensure git tag points at stamped release SHA
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin "$RELEASE_SHA"
+          git tag -f "$RELEASE_TAG" "$RELEASE_SHA"
+          git push --force origin "refs/tags/$RELEASE_TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ env.RELEASE_SHA }}
+          name: ${{ env.RELEASE_TAG }}
           body_path: CHANGELOG.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Stamp latest to brinecrypt
         run: |
           TOKEN=$(cat /var/run/secrets/brinekey/token)
-          VERSION=${GITHUB_REF_NAME#v}
-          BASE_VERSION=${VERSION%-*}
           curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \

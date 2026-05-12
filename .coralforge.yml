@@ -1,0 +1,78 @@
+version: 1
+
+repo:
+  name: brinecrypt
+  owner: RazzorCodes
+  repo: brinecrypt
+
+providers:
+  github_actions:
+    kind: github_actions
+    owner: RazzorCodes
+    repo: brinecrypt
+    auth:
+      token:
+        secretRef:
+          namespace: github
+          name: coralforge-brinecrypt-repo-contents-rw-pat
+          key: github_token
+
+run_types:
+  build:
+    default_provider: github_actions
+    provider_target:
+      workflow: release-branch.yml
+    trigger:
+      mode: manual
+    stages:
+      - name: build-and-test
+        provider: github_actions
+        target:
+          workflow: release-branch.yml
+          job: build-and-test
+        runner: arc-runner-set
+
+  intest:
+    default_provider: github_actions
+    provider_target:
+      workflow: release-intest.yml
+    trigger:
+      mode: manual
+    stages:
+      - name: integration-test
+        provider: github_actions
+        target:
+          workflow: release-intest.yml
+          job: integration-test
+        runner: arc-runner-set
+    depends_on: [build]
+
+  tag:
+    default_provider: github_actions
+    provider_target:
+      workflow: release-tag.yml
+    trigger:
+      mode: manual
+    stages:
+      - name: release
+        provider: github_actions
+        target:
+          workflow: release-tag.yml
+          job: release
+        runner: arc-runner-set
+    depends_on: [intest]
+
+  stable:
+    default_provider: github_actions
+    provider_target:
+      workflow: release-stable.yml
+    trigger:
+      mode: manual
+    stages:
+      - name: retag-stable
+        provider: github_actions
+        target:
+          workflow: release-stable.yml
+          job: retag-stable
+        runner: arc-runner-set
+    depends_on: [tag]

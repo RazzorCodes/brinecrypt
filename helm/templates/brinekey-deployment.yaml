@@ -27,6 +27,10 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: brinekey
           image: {{ default .Values.image.repository .Values.brinekey.image.repository }}:{{ default .Values.image.tag .Values.brinekey.image.tag }}

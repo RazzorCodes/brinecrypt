@@ -1,28 +1,58 @@
 name: Release Stable
 
 on:
+  push:
+    tags:
+      - stable-*
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable version to publish (X.Y.Z); optional if ref already encodes it"
+        required: false
 
 jobs:
   retag-stable:
     runs-on: arc-runner-set
     permissions:
       packages: write
+    # Workflow run status is the gate signal; trigger tags are orchestration inputs only.
 
     steps:
-      - name: Fetch stable version from brinecrypt
+      - name: Resolve stable version context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TOKEN=$(cat /var/run/secrets/brinekey/token)
-          VERSION=$(curl -sf -f -X POST "http://brinecrypt.kube-ex.svc:8080/api/v1/resource?op=query" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"namespace":"ci","name":"brinecrypt-stable"}' \
-            | jq -r '.value.data')
-          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-            echo "No ci/brinecrypt-stable stamp found in brinecrypt."
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            case "$REF_NAME" in
+              stable-*) STABLE_VERSION="${REF_NAME#stable-}" ;;
+              *)
+                echo "Expected stable-X.Y.Z tag but got '$REF_NAME'."
+                exit 1
+                ;;
+            esac
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            STABLE_VERSION="${INPUT_VERSION:-}"
+            if [ -z "$STABLE_VERSION" ]; then
+              STABLE_VERSION="$REF_NAME"
+              STABLE_VERSION="${STABLE_VERSION#stable-}"
+              STABLE_VERSION="${STABLE_VERSION#release/}"
+              STABLE_VERSION="${STABLE_VERSION#v}"
+            fi
+          else
+            echo "Unsupported event '$EVENT_NAME'."
             exit 1
           fi
-          echo "STABLE_VERSION=$VERSION" >> $GITHUB_ENV
+
+          if ! [[ "$STABLE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable version '$STABLE_VERSION'. Expected strict X.Y.Z."
+            exit 1
+          fi
+
+          echo "STABLE_VERSION=$STABLE_VERSION" >> "$GITHUB_ENV"
 
       - name: Wait for Docker
         run: until docker info >/dev/null 2>&1; do sleep 1; done
@@ -34,3 +64,12 @@ jobs:
           docker pull ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }}
           docker tag  ghcr.io/$OWNER/brinecrypt:v${{ env.STABLE_VERSION }} ghcr.io/$OWNER/brinecrypt:stable
           docker push ghcr.io/$OWNER/brinecrypt:stable
+
+      - name: Update stable pointer in brinecrypt
+        run: |
+          set -euo pipefail
+          TOKEN=$(cat /var/run/secrets/brinekey/token)
+          curl -sf -f -X PUT http://brinecrypt.kube-ex.svc:8080/api/v1/resource \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"namespace\":\"ci\",\"name\":\"brinecrypt-stable\",\"type\":\"cleartext\",\"value\":\"$STABLE_VERSION\"}"

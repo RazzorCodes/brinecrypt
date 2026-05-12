@@ -1,0 +1,111 @@
+---
+kind: pipeline
+type: kubernetes
+name: release-branch
+
+# Fires on every push to release/*, including after merging fixes from master.
+# Each green run overwrites the SHA stamp in brinecrypt — the tag pipeline
+# always picks up the latest green commit.
+
+trigger:
+  branch:
+    - release/*
+  event:
+    - push
+
+# The pipeline pods must run under a k8s SA that is registered in brinecrypt
+# with write permission on ci/*.
+# Set this in the Drone k8s runner config: serviceAccountName: drone-ci
+# or add `service_account_name: drone-ci` under pipeline metadata if your
+# runner version supports per-pipeline SA overrides.
+
+steps:
+  - name: build
+    image: gcr.io/kaniko-project/executor:debug
+    commands:
+      - /kaniko/executor
+          --context /drone/src
+          --dockerfile /drone/src/Dockerfile.prod
+          --destination zot.lan/brinecrypt:${DRONE_COMMIT_SHA}
+          --insecure
+          --insecure-pull
+
+  - name: unit-tests
+    image: golang:1.25
+    commands:
+      - go test ./...
+
+  - name: smoke-tests
+    image: golang:1.25
+    commands:
+      - echo "TODO"
+
+  - name: integration-tests
+    image: golang:1.25
+    commands:
+      - echo "TODO"
+
+  - name: stamp-sha
+    image: alpine
+    commands:
+      - apk add --no-cache curl
+      - |
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+        VERSION=${DRONE_SOURCE_BRANCH#release/}
+        curl -sf -X PUT http://brinecrypt.kube-ex.svc/api/v1/resource \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"namespace\":\"ci\",\"name\":\"release/$VERSION\",\"type\":\"cleartext\",\"value\":\"$DRONE_COMMIT_SHA\"}"
+
+---
+kind: pipeline
+type: kubernetes
+name: release-tag
+
+# Fires when you push a tag like v0.0.1.
+# Expects a green release/0.0.1 branch pipeline to have already stamped the SHA.
+# Convention: tag v0.0.1 <-> branch release/0.0.1
+
+trigger:
+  event:
+    - tag
+  ref:
+    - refs/tags/v*
+
+steps:
+  - name: fetch-sha
+    image: alpine
+    commands:
+      - apk add --no-cache curl jq
+      - |
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+        VERSION=${DRONE_TAG#v}
+        SHA=$(curl -sf -X POST "http://brinecrypt.kube-ex.svc/api/v1/resource?op=query" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"namespace\":\"ci\",\"name\":\"release/$VERSION\"}" \
+          | jq -r '.value.data')
+        if [ -z "$SHA" ] || [ "$SHA" = "null" ]; then
+          echo "No stamped SHA found for release/$VERSION — did the branch pipeline pass?"
+          exit 1
+        fi
+        echo "$SHA" > /drone/src/.release-sha
+
+  - name: retag
+    image: quay.io/skopeo/stable
+    commands:
+      - |
+        SHA=$(cat /drone/src/.release-sha)
+        skopeo copy \
+          --src-tls-verify=false \
+          --dest-tls-verify=false \
+          docker://zot.lan/brinecrypt:$SHA \
+          docker://zot.lan/brinecrypt:${DRONE_TAG}
+
+  - name: github-release
+    image: plugins/github-release
+    settings:
+      api_key:
+        from_secret: github_token
+      title: ${DRONE_TAG}
+      note: CHANGELOG.md
