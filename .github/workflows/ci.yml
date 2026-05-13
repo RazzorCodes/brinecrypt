@@ -4,11 +4,6 @@ on:
   push:
     tags:
       - build-*
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to build (X.Y.Z); optional if ref already encodes it"
-        required: false
 
 jobs:
   ci:
@@ -23,30 +18,20 @@ jobs:
 
       - name: Resolve version context
         env:
-          EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
-          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" = "push" ]; then
-            case "$REF_NAME" in
-              build-*) VERSION="${REF_NAME#build-}" ;;
-              *)
-                echo "Expected build-X.Y.Z tag but got '$REF_NAME'."
-                exit 1
-                ;;
-            esac
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            VERSION="${INPUT_VERSION:-}"
-            if [ -z "$VERSION" ]; then
-              VERSION="$REF_NAME"
-              VERSION="${VERSION#build-}"
-              VERSION="${VERSION#release/}"
-              VERSION="${VERSION#v}"
-            fi
-          else
-            echo "Unsupported event '$EVENT_NAME'."
+          case "$REF_NAME" in
+            build-*) VERSION="${REF_NAME#build-}" ;;
+            *)
+              echo "Expected build-X.Y.Z tag but got '$REF_NAME'."
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$VERSION" ]; then
+            echo "Failed to parse build version from tag '$REF_NAME'."
             exit 1
           fi
 
