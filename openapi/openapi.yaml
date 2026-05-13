@@ -560,11 +560,11 @@ paths:
         - Resources
       summary: List namespaces accessible to the caller
       description: |
-        Returns each namespace the caller has at least one non-expired permission on, along with
-        the verbs available in that namespace. The result is the union of the caller's own permissions
-        and the anonymous permission set. Unauthenticated callers receive only anon-covered namespaces.
-        Namespaces granted only via glob patterns are excluded.
-        Use `?op=list`.
+        Returns namespaces the caller has access to, along with the available verbs in each.
+        The result is the union of the caller's own permissions and the anonymous permission set.
+        Callers with `_/ns` list permission see every namespace in the database (not just those
+        covered by explicit patterns). Namespaces granted only via glob patterns are excluded
+        for all other callers. Use `?op=list`.
       operationId: listNamespaces
       parameters:
         - name: op
@@ -589,20 +589,28 @@ paths:
     post:
       tags:
         - Resources
-      summary: List resources in a namespace
+      summary: Query, create, or delete a namespace
       description: |
-        Returns all resources in the given namespace along with the namespace-level verbs the
-        caller holds. Accessible to unauthenticated callers if the namespace is covered by the
-        anonymous permission set.
-        Use `?op=query`.
-      operationId: queryNamespace
+        Behaviour is controlled by the `op` query parameter:
+
+        **`?op=query`:** Returns all resources in the given namespace along with the namespace-level
+        verbs the caller holds. Accessible to unauthenticated callers if the namespace is covered by
+        the anonymous permission set. Body: `{"namespace":"<ns>"}`.
+
+        **`?op=create`:** Explicitly creates a namespace. Requires `_/ns` write permission (session
+        only). Body: `{"namespace":"<ns>"}`. Returns 409 if the namespace already exists. Note: PUT
+        on a resource auto-creates the namespace, so explicit creation is rarely needed.
+
+        **`?op=delete`:** Deletes an empty namespace. Requires `_/ns` delete permission (session
+        only). Body: `{"namespace":"<ns>"}`. Returns 409 if the namespace still contains resources.
+      operationId: namespacePost
       parameters:
         - name: op
           in: query
           required: true
           schema:
             type: string
-            enum: [query]
+            enum: [query, create, delete]
       requestBody:
         required: true
         content:
@@ -611,15 +619,23 @@ paths:
               $ref: '#/components/schemas/NamespaceQueryRequest'
       responses:
         '200':
-          description: Namespace resources and caller verbs
+          description: "`op=query` — namespace resources and caller verbs"
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/NamespaceQueryResponse'
+        '201':
+          description: "`op=create` — namespace created"
+        '204':
+          description: "`op=delete` — namespace deleted"
         '400':
           description: Invalid request body or op parameter
         '403':
           description: Forbidden
+        '404':
+          description: "`op=delete` — namespace not found"
+        '409':
+          description: "`op=create` namespace already exists; `op=delete` namespace is not empty"
         '500':
           description: Internal server error
 
@@ -1000,7 +1016,8 @@ components:
       properties:
         principal:
           type: string
-          description: "Principal identifier (e.g., 'user:username' or 'sa:namespace:name')"
+          description: "Principal identifier. Format: `user/<name>` for users, `sa/<namespace>/<name>` for service accounts."
+          example: "user/alice"
         permissions:
           type: array
           items:
