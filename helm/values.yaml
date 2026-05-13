@@ -4,8 +4,8 @@ fullnameOverride: ""
 replicaCount: 1
 
 image:
-  repository: zot.lan/brinecrypt
-  tag: latest
+  repository: ghcr.io/razzorcodes/brinecrypt
+  tag: stable
   pullPolicy: Always
 
 # Brinecrypt KEK — hex-encoded 32 bytes (64 chars). Set in values.local.yaml.
